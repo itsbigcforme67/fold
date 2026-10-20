@@ -388,8 +388,23 @@ static void cond(const FoldGame *g, int s, char *o, int len, int depth) {   // w
     if (L->op == FL_NOT) { cat(o, len, "NOT ("); cond(g, L->in[0], o, len, depth + 1); cat(o, len, ")"); return; }
     if (L->op == FL_LATCH) { cond(g, L->in[0], o, len, depth + 1); cat(o, len, " (ONCE IS ENOUGH)"); return; }
     if (L->op == FL_COUNT) { char b[24]; cond(g, L->in[0], o, len, depth + 1); snprintf(b, sizeof b, " %d TIMES", L->count); cat(o, len, b); return; }
+    // inputs all of one kind read as one phrase: BOTH PLATES ARE HELD, EITHER BUTTON IS PRESSED...
+    static const char *ONE[] = { "A PLATE IS HELD", "A BUTTON IS PRESSED", "A BOX IS ON A TARGET", "A KEY IS TAKEN" };
+    static const char *MANY[] = { "PLATES ARE HELD", "BUTTONS ARE PRESSED", "BOXES ARE ON THEIR TARGETS", "KEYS ARE TAKEN" };
+    static const char *NOUN[] = { "PLATE IS HELD", "BUTTON IS PRESSED", "BOX IS ON ITS TARGET", "KEY IS TAKEN" };
+    const char *n0 = src_name(g, L->in[0]); int same = n0 != NULL, kind = -1;
+    for (int i = 1; i < L->n; i++) { const char *ni = src_name(g, L->in[i]); if (!ni || !n0 || strcmp(ni, n0)) same = 0; }
+    for (int k = 0; k < 4 && same; k++) if (!strcmp(n0, ONE[k])) kind = k;
+    if (same && kind >= 0 && L->n > 1) {
+      char b[64];
+      if (L->op == FL_AND) { if (L->n == 2) snprintf(b, sizeof b, "BOTH %s", MANY[kind]); else snprintf(b, sizeof b, "ALL %d %s", L->n, MANY[kind]); }
+      else if (L->op == FL_OR) { if (L->n == 2) snprintf(b, sizeof b, "EITHER %s", NOUN[kind]); else snprintf(b, sizeof b, "ANY OF %d: A %s", L->n, NOUN[kind]); }
+      else snprintf(b, sizeof b, "JUST ONE %s", NOUN[kind]);
+      cat(o, len, b);
+      return;
+    }
     for (int i = 0; i < L->n; i++) {
-      if (i) cat(o, len, L->op == FL_AND ? " AND " : L->op == FL_OR ? " OR " : " OR ");
+      if (i) cat(o, len, L->op == FL_AND ? " AND " : " OR ");
       cond(g, L->in[i], o, len, depth + 1);
     }
     if (L->op == FL_XOR) cat(o, len, " (BUT NOT BOTH)");

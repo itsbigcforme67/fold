@@ -90,4 +90,25 @@ void vmx_game(uint8_t *b, const FoldGame *g, int level, const char *line2) {
     vmx_text(b, 32 - 2 * 6 + 1, 27, "A ROOM"); vmx_text(b, 32 - 2 * (int)strlen(line2) + 1, 35, line2);
   }
 }
+static int wrap(const char *t, char lines[][15], int max) {   // words into lines of up to 14 characters
+  int n = 0, len = 0; lines[0][0] = 0;
+  while (*t && n < max) {
+    while (*t == ' ') t++;
+    int w = 0; while (t[w] && t[w] != ' ') w++;
+    if (!w) break;
+    if (len && len + 1 + w > 14) { n++; len = 0; if (n == max) break; lines[n][0] = 0; }
+    if (len) lines[n][len++] = ' ';
+    for (int i = 0; i < w && len < 14; i++) lines[n][len++] = t[i];
+    lines[n][len] = 0; t += w;
+  }
+  return len ? n + 1 : n;
+}
+int vmx_talk(uint8_t *b, const char *text, int page) {
+  static char lines[40][15];
+  int n = wrap(text, lines, 40), pages = (n + 6) / 7;
+  rect(b, 1, 9, 62, 62, 0); rect(b, 1, 9, 62, 9, 1); rect(b, 1, 62, 62, 62, 1); rect(b, 1, 9, 1, 62, 1); rect(b, 62, 9, 62, 62, 1);
+  for (int k = 0; k < 7 && page * 7 + k < n; k++) vmx_text(b, 4, 12 + k * 7, lines[page * 7 + k]);
+  if (page + 1 < pages) { px(b, 58, 59, 1); px(b, 59, 59, 1); px(b, 60, 59, 1); px(b, 59, 60, 1); }   // more: a little arrow
+  return pages;
+}
 void vmx_colours(const uint8_t *b, uint32_t *out, uint32_t lit, uint32_t dark) { for (int i = 0; i < 64 * 64; i++) out[i] = b[i] ? lit : dark; }

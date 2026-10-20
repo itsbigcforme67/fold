@@ -28,6 +28,9 @@ keeps snapshots of it. See `docs/PLAN.md`.
 - Tiles: wall, floor, box, target, button, player, plus ice, one-way floor, pit, teleporter pads, pressure plate,
   gate (worked by buttons / plates), key and lock, player-only grate (`docs/FORMAT.md`; rules tested in
   `tests/tiles.c`, small test levels in `tests/levels/`). The JavaScript web version only has the original tiles.
+- Signals and logic: inputs (buttons, plates, sensors, targets, keys, all targets filled) send signals, logic pieces
+  combine them, outputs follow them (cell moves, gates, brick-look wall gates, teleporters, one-ways). Talking to a tile
+  says what it is and does, worked out from the wiring (never which cell), unless the level gives it its own text.
 - `app/`: the level editor + playtest + VMX window, on a small software renderer (640x480, the same picture on PC
   and the original Xbox). `make app` builds `build/fold` (SDL2 window) and `build/fold_headless` (scripted input,
   screenshots; used for testing). Run `build/fold levels`. Pad or keyboard (WASD stick, arrows D-pad, Z A, X B, C X,
@@ -43,5 +46,10 @@ X opens the cell on the side facing you; Y opens the cell's settings (its move, 
 side); START opens the menu (playtest, VMX window, save, load, new level).
 
 Cell editor: left stick moves the tile cursor (off an edge it carries on into the next cell); the D-pad jumps to the
-next cell; A places the tile (wall, floor, box, target, button, player; L / R pick), B clears to floor; a doorway on
-the outer ring opens in the cell beyond too; X goes back to the level view.
+next cell; A places the tile (L / R pick), B clears to floor; a doorway on the outer ring opens in the cell beyond too;
+Y opens the tile's settings (the signal it sends or is worked by, how a gate / teleporter starts, what it will say);
+X goes back to the level view. START > WIRING: the logic pieces (and / or / xor / not / latch / count) and the
+all-targets input.
+
+Playtest (and the game): move with the D-pad or stick; A talks to the tile you face (or stand on); B undoes, hold B
+restarts; START goes back.

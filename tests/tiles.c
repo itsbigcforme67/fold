@@ -96,7 +96,6 @@ int main(void) {
   // two plates feed an AND that opens a gate
   load(level("########\n#......#\n#.pb=..#\n#......#\n#.pb=..#\n#......#\n#..|...#\n########\n"
              "logic 3 and 1 2\ndrive 0 f 3 6 3\n"));
-  { FoldLevel lv2 = lv; lv2.player = CELL(0, 2, 2); }
   g.p = CELL(0, 2, 2); fold_move(&g, 1); CHECK("logic: AND, one plate held: shut", !OPEN(3, 6));
   g.p = CELL(0, 2, 4); fold_move(&g, 1); CHECK("logic: AND, both plates held: open", OPEN(3, 6));
   // XOR
@@ -135,7 +134,7 @@ int main(void) {
   // talking
   load(level("########\n#......#\n#.pb=..#\n#......#\n#.pb=..#\n#......#\n#..|...#\n########\nlogic 3 and 1 2\ndrive 0 f 3 6 3\n"));
   { char t[200]; fold_describe(&g, CELL(0, 4, 2), t, sizeof t); printf("   plate says: %s\n", t); CHECK("talk: a plate in an AND", strstr(t, "1 OF 2 NEEDED") != NULL);
-    fold_describe(&g, CELL(0, 3, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: the gate it works", strstr(t, "A PLATE IS HELD AND A PLATE IS HELD") != NULL); }
+    fold_describe(&g, CELL(0, 3, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: the gate it works", strstr(t, "BOTH PLATES ARE HELD") != NULL); }
   load(level("########\n#......#\n#.p....#\n#......#\n#......#\n#......#\n#......#\n########\ntext 0 f 2 3 HELLO THERE.\n"));
   { char t[200]; fold_describe(&g, fold_facing(&g), t, sizeof t); CHECK("talk: a tile's own text, facing it", !strcmp(t, "HELLO THERE.")); }
   printf("%d tests, %d failed\n", tests, fails);

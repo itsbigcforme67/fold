@@ -17,6 +17,8 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
 // the whole game screen: room, HUD (level, boxes left, moves), and a pop-up ("A ROOM" / line2) if line2
 void vmx_game(uint8_t *b, const FoldGame *g, int level, const char *line2);
 void vmx_text(uint8_t *b, int x, int y, const char *s);
+// what a tile says, in a box over the room: word-wrapped to 14 characters, 7 lines a page. Returns the page count.
+int vmx_talk(uint8_t *b, const char *text, int page);
 extern const char *VMX_BOX[7], *VMX_BOXON[7], *VMX_MAN[7];   // 7x7 sprites, '#' = lit
 // 64x64 bits -> 0xRRGGBB (lit / dark)
 void vmx_colours(const uint8_t *b, uint32_t *out, uint32_t lit, uint32_t dark);

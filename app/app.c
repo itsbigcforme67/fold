@@ -23,7 +23,7 @@
 #define N FOLD_N
 #define NN FOLD_NN
 #define PI 3.14159265f
-enum { M_SHAPE, M_ROOM, M_PROPS, M_MENU, M_PLAY };
+enum { M_SHAPE, M_ROOM, M_PROPS, M_MENU, M_PLAY, M_TILE, M_WIRE };
 
 // colours (TV)
 #define C_BG 0x0b0e0a
@@ -35,11 +35,11 @@ enum { M_SHAPE, M_ROOM, M_PROPS, M_MENU, M_PLAY };
 #define C_HI 0x7dff3a
 
 // ---- the level being built ---------------------------------------------------------------------------------------
-static FoldLevel L;                       // squares and room cells (btn: 1 = a button; numbered when built)
+static FoldLevel L;                       // the level: cells (squares), tiles, signals (btn = the signal a tile sends)
 static FoldSurface S;                     // joins for the squares where they are
 static uint8_t sides[FOLD_MAXSQ];         // bit 0 front is a room, bit 1 back is a room
 static FoldAct func[FOLD_MAXSQ];          // a tile's room move (kind 0 = none)
-static int trig[FOLD_MAXSQ];              // the button that triggers it (0 = none)
+static int trig[FOLD_MAXSQ];              // the signal that works it (0 = none)
 static char levelsDir[256] = "levels", path[300] = "", msg[64] = "";
 static int msgT, mode = M_SHAPE, quit, t;
 
@@ -51,12 +51,13 @@ static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
 static int rf, rrot, rx = 3, ry = 3, item = 1;
-static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK", "GRATE" };
-#define NITEMS 15
+static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK", "GRATE", "SENSOR", "WALL GATE" };
+#define NITEMS 17
 // settings / menu
-static int prow, mrow, fileIx, vmxWin = 1, propSq, propsBack = M_SHAPE;
+static int prow, mrow, fileIx, vmxWin = 1, propSq, propsBack = M_SHAPE, trow, tcell, wrow, wfield;
 // playtest
-static FoldLevel PL; static FoldGame G; static int popT, wonT; static const char *popWord;
+static FoldLevel PL; static FoldGame G; static int popT, wonT, holdB; static const char *popWord;
+static char talk[FOLD_TEXTLEN * 2]; static int talkOn, talkPage;   // what the tile you talked to says
 
 static void say(const char *s) { snprintf(msg, sizeof msg, "%s", s); msgT = 90; }
 
@@ -109,24 +110,39 @@ static void remove_sq(int i) {
   for (int k = 0; k < 6; k++) memset(arr[k] + 2 * L.nsq * NN, k == 0, 2 * NN);
   resurface();
 }
-static int nbuttons(void) { int n = 0; for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.btn[c] && !L.wall[c]) n++; return n; }
-// the level as the core wants it: buttons numbered in room order, links from the tiles' moves
+// ---- signals -----------------------------------------------------------------------------------------------------
+static int sig_used(int k) {                  // does anything send signal k?
+  if (L.allSig == k) return 1;
+  for (int i = 0; i < L.nlogic; i++) if (L.logic[i].out == k) return 1;
+  for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.btn[c] == k && !L.wall[c]) return 1;
+  return 0;
+}
+static int next_signal(void) { for (int k = 1; k < FOLD_MAXSIG; k++) if (!sig_used(k)) return k; return 0; }
+// the next signal number to offer, stepping dir from cur: the ones in use, a new one, and 0 (none) if allowed
+static int sig_cycle(int cur, int dir, int allowNone) {
+  int list[FOLD_MAXSIG + 1], n = 0, fresh = next_signal();
+  if (allowNone) list[n++] = 0;
+  for (int k = 1; k < FOLD_MAXSIG; k++) if (sig_used(k) || k == fresh || k == cur) list[n++] = k;
+  int at = 0; for (int i = 0; i < n; i++) if (list[i] == cur) at = i;
+  return list[(at + dir + n) % n];
+}
+// the level as the core wants it: the cells' moves become links on their signals, logic compacted
 static void build(FoldLevel *out) {
   *out = L;
-  int n = 0;
-  for (int c = 0; c < 2 * L.nsq * NN; c++) out->btn[c] = L.btn[c] && !L.wall[c] ? (uint8_t)++n : 0;
-  out->nbtn = n; memset(out->nact, 0, sizeof out->nact); memset(out->geo, 0, sizeof out->geo);
+  memset(out->nact, 0, sizeof out->nact); memset(out->geo, 0, sizeof out->geo);
   for (int i = 0; i < L.nsq; i++) {
-    if (!func[i].kind || trig[i] < 1 || trig[i] > n) continue;
+    if (!func[i].kind || trig[i] < 1 || trig[i] >= FOLD_MAXSIG || out->nact[trig[i] - 1] == FOLD_MAXACT) continue;
     FoldAct a = func[i]; a.sq = (uint8_t)i;
     out->act[trig[i] - 1][out->nact[trig[i] - 1]++] = a;
     if ((a.kind == 's' || a.kind == 'h') && !out->geo[i]) { out->geo[i] = 1; out->geoAct[i] = a; }
   }
-  for (int b = 1; b <= n; b++) {              // a button works the gates that name it
-    int any = 0;
-    for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.kind[c] == FK_GATE && !L.wall[c] && (L.aux[c] & 0x7f) == b) any = 1;
-    if (any && out->nact[b - 1] < FOLD_MAXACT) { FoldAct a; memset(&a, 0, sizeof a); a.kind = 'g'; a.sq = (uint8_t)b; out->act[b - 1][out->nact[b - 1]++] = a; }
+  out->nlogic = 0;
+  for (int k = 0; k < L.nlogic; k++) {        // empty input slots (0) are left out; a piece with no inputs is dropped
+    FoldLogic q = L.logic[k]; q.n = 0;
+    for (int i = 0; i < 4; i++) if (L.logic[k].in[i]) q.in[q.n++] = L.logic[k].in[i];
+    if (q.n && q.out) out->logic[out->nlogic++] = q;
   }
+  for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.wall[c]) { out->btn[c] = out->drv[c] = 0; }
   out->nsol = 0;
 }
 
@@ -141,17 +157,31 @@ int app_save(const char *p) {
     if (!(sides[fc >> 1] >> (fc & 1) & 1)) continue;
     fprintf(f, "room %d %c\n", fc >> 1, fc & 1 ? 'b' : 'f');
     for (int y = 0; y < N; y++) { for (int x = 0; x < N; x++) { int c = fc * NN + y * N + x;
-      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' : L.kind[c] == FK_GATE ? (L.aux[c] & 0x80 ? ':' : '|') : L.kind[c] == FK_KEY ? 'k' : L.kind[c] == FK_LOCK ? 'l' : L.kind[c] == FK_GRATE ? '+' :   // special floors: a box /
+      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' : L.kind[c] == FK_GATE ? (L.aux[c] & 0x40 ? (L.aux[c] & 0x80 ? ';' : '%') : L.aux[c] & 0x80 ? ':' : '|') : L.kind[c] == FK_SENSOR ? '*' : L.kind[c] == FK_KEY ? 'k' : L.kind[c] == FK_LOCK ? 'l' : L.kind[c] == FK_GRATE ? '+' :   // special floors: a box /
         // the player on them goes on its own line
         L.wall[c] ? '#' : L.box[c] ? (L.target[c] ? 'B' : B.btn[c] ? 'O' : 'b') : c == L.player ? (L.target[c] ? 'P' : 'p') : L.target[c] ? 'x' : B.btn[c] ? 'o' : '.';
       fputc(ch, f); } fputc('\n', f); }
     for (int c = fc * NN; c < (fc + 1) * NN; c++) if (L.kind[c] && !L.wall[c]) {
-      if (L.kind[c] == FK_GATE && (L.aux[c] & 0x7f)) fprintf(f, "gate %d %c %d %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N, L.aux[c] & 0x7f);
       if (L.box[c]) fprintf(f, "box %d %c %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N);
       if (c == L.player) fprintf(f, "player %d %c %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N);
     }
+    for (int c = fc * NN; c < (fc + 1) * NN; c++) if (!L.wall[c]) {   // signals sent / taken, and tiles' own text
+      char sd = fc & 1 ? 'b' : 'f';
+      if (B.btn[c]) fprintf(f, "signal %d %c %d %d %d\n", fc >> 1, sd, c % N, (c / N) % N, B.btn[c]);
+      if (B.drv[c]) fprintf(f, "drive %d %c %d %d %d\n", fc >> 1, sd, c % N, (c / N) % N, B.drv[c]);
+      if (L.txt[c]) fprintf(f, "text %d %c %d %d %s\n", fc >> 1, sd, c % N, (c / N) % N, L.text[L.txt[c] - 1]);
+    }
   }
-  for (int b = 0; b < B.nbtn; b++) if (B.nact[b]) {
+  if (B.allSig) fprintf(f, "input %d alltargets\n", B.allSig);
+  static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count" };
+  for (int k = 0; k < B.nlogic; k++) {
+    const FoldLogic *q = &B.logic[k];
+    fprintf(f, "logic %d %s", q->out, OPS[q->op]);
+    if (q->op == FL_COUNT) fprintf(f, " %d", q->count ? q->count : 1);
+    for (int i = 0; i < q->n; i++) fprintf(f, " %d", q->in[i]);
+    fputc('\n', f);
+  }
+  for (int b = 0; b < FOLD_MAXSIG - 1; b++) if (B.nact[b]) {
     fprintf(f, "link %d", b + 1);
     for (int k = 0; k < B.nact[b]; k++) { const FoldAct *a = &B.act[b][k];
       if (a->kind == 's' || a->kind == 'h') fprintf(f, " %c%d:%s", a->kind, a->sq, a->spec); else fprintf(f, " %c%d", a->kind, a->sq); }   // g<k> too
@@ -170,8 +200,8 @@ int app_load(const char *p) {
     sides[i] = 0;
     for (int s = 0; s < 2; s++) for (int c = (2 * i + s) * NN; c < (2 * i + s + 1) * NN; c++) if (!L.wall[c]) { sides[i] |= 1 << s; break; }
   }
-  for (int b = 0; b < L.nbtn; b++) for (int k = 0; k < L.nact[b]; k++) { const FoldAct *a = &L.act[b][k]; if (a->kind == 'g') continue; func[a->sq] = *a; trig[a->sq] = b + 1; }
-  for (int c = 0; c < 2 * L.nsq * NN; c++) L.btn[c] = L.btn[c] ? 1 : 0;
+  for (int b = 0; b < FOLD_MAXSIG - 1; b++) for (int k = 0; k < L.nact[b]; k++) { const FoldAct *a = &L.act[b][k]; func[a->sq] = *a; trig[a->sq] = b + 1; }
+  for (int k = 0; k < L.nlogic; k++) for (int i = L.logic[k].n; i < 4; i++) L.logic[k].in[i] = 0;
   // cursor on square 0, flat in its plane
   const FoldSquare *q = &L.sq[0];
   for (int i = 0; i < 3; i++) { co[i] = q->o[i] + (q->u[i] < 0 ? q->u[i] : 0) + (q->v[i] < 0 ? q->v[i] : 0); ce1[i] = abs(q->u[i]); ce2[i] = abs(q->v[i]); }
@@ -309,11 +339,11 @@ static void paint(int c, int what) {
   int x = c % N, y = (c / N) % N, edge = x == 0 || y == 0 || x == N - 1 || y == N - 1, corner = (x == 0 || x == N - 1) && (y == 0 || y == N - 1);
   if (corner && what != 0) { say("CORNERS STAY WALL"); return; }
   switch (what) {
-    case 0: if (c == L.player) { say("MOVE THE PLAYER FIRST"); return; } L.wall[c] = 1; L.box[c] = L.target[c] = L.btn[c] = L.kind[c] = L.aux[c] = 0; break;
-    case 1: L.wall[c] = 0; L.box[c] = L.target[c] = L.btn[c] = L.kind[c] = L.aux[c] = 0; break;
+    case 0: if (c == L.player) { say("MOVE THE PLAYER FIRST"); return; } L.wall[c] = 1; L.box[c] = L.target[c] = L.btn[c] = L.kind[c] = L.aux[c] = L.drv[c] = L.txt[c] = 0; break;
+    case 1: L.wall[c] = 0; L.box[c] = L.target[c] = L.btn[c] = L.kind[c] = L.aux[c] = L.drv[c] = 0; break;
     case 2: if (c == L.player) return; L.wall[c] = 0; L.box[c] ^= 1; break;
     case 3: L.wall[c] = 0; L.target[c] ^= 1; break;
-    case 4: L.wall[c] = 0; L.btn[c] ^= 1; if (L.kind[c] == FK_PLATE) L.kind[c] = FK_FLOOR; break;
+    case 4: L.wall[c] = 0; if (L.kind[c] == FK_PLATE || L.kind[c] == FK_SENSOR) L.kind[c] = FK_FLOOR; L.btn[c] = L.btn[c] ? 0 : (uint8_t)next_signal(); break;
     case 5: if (L.box[c]) return; L.wall[c] = 0; L.player = c; break;
     case 6: L.wall[c] = 0; L.btn[c] = 0; L.kind[c] = L.kind[c] == FK_ICE ? FK_FLOOR : FK_ICE; break;   // ice
     case 7:                                   // one-way: placed pointing up the screen; A again turns it
@@ -323,7 +353,7 @@ static void paint(int c, int what) {
     case 8: if (c == L.player) return; L.wall[c] = 0; L.btn[c] = L.box[c] = L.target[c] = 0; L.kind[c] = L.kind[c] == FK_PIT ? FK_FLOOR : FK_PIT; break;
     case 11:                                  // gate: placed shut; A again opens / shuts it (how it starts); Y picks its button
       L.wall[c] = 0; L.btn[c] = 0;
-      if (L.kind[c] == FK_GATE) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0; say("Y ON A GATE PICKS ITS BUTTON"); }
+      if (L.kind[c] == FK_GATE && !(L.aux[c] & 0x40)) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0; say("Y ON A GATE PICKS ITS SIGNAL"); }
       break;
     case 14:                                  // grate: you can cross it, boxes can't
       L.wall[c] = 0; L.btn[c] = 0; L.box[c] = L.target[c] = 0; L.kind[c] = L.kind[c] == FK_GRATE ? FK_FLOOR : FK_GRATE; break;
@@ -334,7 +364,15 @@ static void paint(int c, int what) {
       break;
     case 10:                                  // pressure plate: a button that holds only while a box is on it
       L.wall[c] = 0;
-      if (L.kind[c] == FK_PLATE) { L.kind[c] = FK_FLOOR; L.btn[c] = 0; } else { L.kind[c] = FK_PLATE; L.btn[c] = 1; }
+      if (L.kind[c] == FK_PLATE) { L.kind[c] = FK_FLOOR; L.btn[c] = 0; } else { L.kind[c] = FK_PLATE; if (!L.btn[c]) L.btn[c] = (uint8_t)next_signal(); }
+      break;
+    case 15:                                  // sensor: on while you stand on it
+      L.wall[c] = 0;
+      if (L.kind[c] == FK_SENSOR) { L.kind[c] = FK_FLOOR; L.btn[c] = 0; } else { L.kind[c] = FK_SENSOR; if (!L.btn[c]) L.btn[c] = (uint8_t)next_signal(); }
+      break;
+    case 16:                                  // a gate that looks like brick wall (a wall that comes and goes)
+      L.wall[c] = 0; L.btn[c] = 0;
+      if (L.kind[c] == FK_GATE && (L.aux[c] & 0x40)) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0x40; say("Y ON IT PICKS ITS SIGNAL"); }
       break;
     case 9: {                                 // teleporter: pairs with a lone pad if there is one; A again changes its pair
       L.wall[c] = 0; L.btn[c] = 0;
@@ -371,12 +409,7 @@ static void room_frame(const Pad *p) {
   if (pressed(p, PAD_B)) paint(screen_to_cell(rx, ry), 1);
   if (pressed(p, PAD_X)) mode = M_SHAPE;
   if (pressed(p, PAD_Y)) {
-    int c = screen_to_cell(rx, ry);
-    if (L.kind[c] == FK_GATE && !L.wall[c]) {   // a gate: which button works it (0 = none)
-      int n = nbuttons(), k = ((L.aux[c] & 0x7f) + 1) % (n + 1);
-      L.aux[c] = (uint8_t)((L.aux[c] & 0x80) | k);
-      char m[40]; if (k) snprintf(m, sizeof m, "GATE WORKED BY BUTTON %d", k); else snprintf(m, sizeof m, "GATE: NO BUTTON"); say(m);
-    } else { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; }
+    tcell = screen_to_cell(rx, ry); trow = 0; mode = M_TILE;   // this tile's settings (from there, the cell's)
   }
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
 }
@@ -403,30 +436,105 @@ static int func_ok(int i, const FoldAct *a) {   // a shift / hinge must not land
   tmp[i] = fold_geo_pose(L.sq[i], a);
   return !fold_overlap(tmp, L.nsq);
 }
+enum { P_MOVE, P_SIGNAL, P_TURNMODE, P_BACK, P_DELETE };
+static int prop_rows(int i, int *rows) {      // which rows the cell settings show
+  int n = 0; rows[n++] = P_MOVE; rows[n++] = P_SIGNAL;
+  if (func[i].kind == 'r' || func[i].kind == 'R') rows[n++] = P_TURNMODE;
+  rows[n++] = P_BACK; rows[n++] = P_DELETE;
+  return n;
+}
 static void props_frame(const Pad *p) {
-  int d, i = propSq;
+  int d, i = propSq, rows[8], nr = prop_rows(i, rows);
+  if (prow >= nr) prow = nr - 1;
   if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
     int sd = PADDIR[d];
-    if (sd == 0) prow = (prow + 3) % 4; else if (sd == 2) prow = (prow + 1) % 4;
+    if (sd == 0) prow = (prow + nr - 1) % nr; else if (sd == 2) prow = (prow + 1) % nr;
     else {
-      int st = sd == 1 ? 1 : -1;
-      if (prow == 0) {
+      int st = sd == 1 ? 1 : -1, r = rows[prow];
+      if (r == P_MOVE) {
         int k = func_index(&func[i]);
         for (int tries = 0; tries < NFUNCS; tries++) {
           k = (k + st + NFUNCS) % NFUNCS; FoldAct a = func_of(k); a.sq = (uint8_t)i;
           if (func_ok(i, &a)) { func[i] = a; break; }
         }
-      } else if (prow == 1) { int n = nbuttons(); trig[i] = (trig[i] + st + n + 1) % (n + 1); }
-      else if (prow == 2) { if (sides[i] & 2) { sides[i] &= ~2; clear_face(2 * i + 1); } else make_room(2 * i + 1); }
+      } else if (r == P_SIGNAL) trig[i] = sig_cycle(trig[i], st, 1);
+      else if (r == P_TURNMODE) func[i].kind = func[i].kind == 'r' ? 'R' : 'r';
+      else if (r == P_BACK) { if (sides[i] & 2) { sides[i] &= ~2; clear_face(2 * i + 1); } else make_room(2 * i + 1); }
     }
   }
-  if (pressed(p, PAD_A) && prow == 3) { remove_sq(i); mode = M_SHAPE; say("CELL REMOVED"); return; }
-  if (prow == 2 && !(sides[i] & 2) && propsBack == M_ROOM && rf == 2 * i + 1) propsBack = M_SHAPE;   // its room went
+  if (pressed(p, PAD_A) && rows[prow] == P_DELETE) { remove_sq(i); mode = M_SHAPE; say("CELL REMOVED"); return; }
+  if (rows[prow] == P_BACK && !(sides[i] & 2) && propsBack == M_ROOM && rf == 2 * i + 1) propsBack = M_SHAPE;   // its room went
   if (pressed(p, PAD_B) || pressed(p, PAD_Y)) mode = propsBack;
 }
 
+// ---- tile settings (Y on a tile in the cell editor) ---------------------------------------------------------------
+enum { T_SENDS, T_WORKED, T_STARTS, T_LOOKS, T_CELL };
+static int sends_ok(int c) { return L.kind[c] == FK_PLATE || L.kind[c] == FK_SENSOR || L.kind[c] == FK_KEY || L.target[c] || (L.btn[c] && L.kind[c] == FK_FLOOR); }
+static int worked_ok(int c) { return L.kind[c] == FK_GATE || L.kind[c] == FK_TELE || L.kind[c] == FK_ONEWAY; }
+static int tile_rows(int c, int *rows) {
+  int n = 0;
+  if (sends_ok(c)) rows[n++] = T_SENDS;
+  if (worked_ok(c)) rows[n++] = T_WORKED;
+  if (L.kind[c] == FK_GATE) { rows[n++] = T_STARTS; rows[n++] = T_LOOKS; }
+  if (L.kind[c] == FK_TELE) rows[n++] = T_STARTS;
+  rows[n++] = T_CELL;
+  return n;
+}
+static void tile_frame(const Pad *p) {
+  int d, c = tcell, rows[8], nr = tile_rows(c, rows);
+  if (nr == 1) { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }   // nothing to set: the cell's
+  if (trow >= nr) trow = nr - 1;
+  if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
+    int sd = PADDIR[d];
+    if (sd == 0) trow = (trow + nr - 1) % nr; else if (sd == 2) trow = (trow + 1) % nr;
+    else {
+      int st = sd == 1 ? 1 : -1, r = rows[trow];
+      int needs = L.kind[c] == FK_PLATE || L.kind[c] == FK_SENSOR || (L.btn[c] && L.kind[c] == FK_FLOOR && !L.target[c]);
+      if (r == T_SENDS) { int k = sig_cycle(L.btn[c], st, !needs); L.btn[c] = (uint8_t)(needs && !k ? next_signal() : k); }
+      else if (r == T_WORKED) L.drv[c] = (uint8_t)sig_cycle(L.drv[c], st, 1);
+      else if (r == T_STARTS) L.aux[c] ^= 0x80;   // a gate open / shut, a teleporter off / on
+      else if (r == T_LOOKS) L.aux[c] ^= 0x40;
+    }
+  }
+  if (pressed(p, PAD_A) && rows[trow] == T_CELL) { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }
+  if (pressed(p, PAD_B) || pressed(p, PAD_Y)) mode = M_ROOM;
+}
+
+// ---- wiring: the level-wide input and the logic pieces ------------------------------------------------------------
+static const char *OPNAMES[] = { "AND", "OR", "XOR", "NOT", "LATCH", "COUNT" };
+static void wire_frame(const Pad *p) {
+  int d, nr = 2 + L.nlogic;                   // row 0 all targets, 1..nlogic pieces, last: add one
+  if (wrow >= nr) wrow = nr - 1;
+  if (pressed(p, PAD_L)) wfield = wfield > 0 ? wfield - 1 : 0;
+  if (pressed(p, PAD_R)) wfield = wfield < 6 ? wfield + 1 : 6;
+  if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
+    int sd = PADDIR[d];
+    if (sd == 0) wrow = (wrow + nr - 1) % nr; else if (sd == 2) wrow = (wrow + 1) % nr;
+    else {
+      int st = sd == 1 ? 1 : -1;
+      if (wrow == 0) L.allSig = sig_cycle(L.allSig, st, 1);
+      else if (wrow <= L.nlogic) {               // fields: 0 out, 1 op, 2 count, 3..6 inputs
+        FoldLogic *q = &L.logic[wrow - 1];
+        if (wfield == 0) q->out = (uint8_t)sig_cycle(q->out, st, 0);
+        else if (wfield == 1) q->op = (uint8_t)((q->op + st + 6) % 6);
+        else if (wfield == 2) q->count = (uint8_t)(q->count + st < 1 ? 1 : q->count + st > 99 ? 99 : q->count + st);
+        else q->in[wfield - 3] = (uint8_t)sig_cycle(q->in[wfield - 3], st, 1);
+      }
+    }
+  }
+  if (pressed(p, PAD_A) && wrow == nr - 1 && L.nlogic < FOLD_MAXLOGIC) {   // a new AND, sending a fresh signal
+    FoldLogic *q = &L.logic[L.nlogic]; memset(q, 0, sizeof *q);
+    q->op = FL_AND; q->count = 2; q->n = 4; q->out = (uint8_t)next_signal(); L.nlogic++; wrow = L.nlogic; wfield = 3;
+  }
+  if (pressed(p, PAD_X) && wrow >= 1 && wrow <= L.nlogic) {               // delete a piece
+    memmove(&L.logic[wrow - 1], &L.logic[wrow], sizeof(FoldLogic) * (L.nlogic - wrow)); L.nlogic--;
+  }
+  if (pressed(p, PAD_B) || pressed(p, PAD_START)) mode = M_SHAPE;
+}
+
 // ---- menu and playtest -------------------------------------------------------------------------------------------
-static const char *MENU[] = { "PLAYTEST", "VMX WINDOW", "SAVE", "LOAD", "NEW LEVEL", "QUIT" };
+static const char *MENU[] = { "PLAYTEST", "VMX WINDOW", "WIRING", "SAVE", "LOAD", "NEW LEVEL", "QUIT" };
+#define NMENU 7
 static char files[64][64]; static int nfiles;
 static void start_play(void) {
   build(&PL);
@@ -435,11 +543,11 @@ static void start_play(void) {
 }
 static void menu_frame(const Pad *p) {
   int d;
-  if (mrow == 3 && !nfiles) nfiles = list_levels(files, 64);
+  if (mrow == 4 && !nfiles) nfiles = list_levels(files, 64);
   if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
     int sd = PADDIR[d];
-    if (sd == 0) mrow = (mrow + 5) % 6; else if (sd == 2) mrow = (mrow + 1) % 6;
-    else if (mrow == 3 && nfiles) fileIx = (fileIx + (sd == 1 ? 1 : nfiles - 1)) % nfiles;
+    if (sd == 0) mrow = (mrow + NMENU - 1) % NMENU; else if (sd == 2) mrow = (mrow + 1) % NMENU;
+    else if (mrow == 4 && nfiles) fileIx = (fileIx + (sd == 1 ? 1 : nfiles - 1)) % nfiles;
     else if (mrow == 1) vmxWin ^= 1;
   }
   if (pressed(p, PAD_A)) {
@@ -447,17 +555,23 @@ static void menu_frame(const Pad *p) {
     switch (mrow) {
       case 0: start_play(); return;
       case 1: vmxWin ^= 1; break;
-      case 2:
+      case 2: wrow = 0; wfield = 0; mode = M_WIRE; return;
+      case 3:
         if (!path[0]) { for (int k = 1; k < 1000; k++) { snprintf(path, sizeof path, "%s/user-%03d.fold", levelsDir, k); FILE *f = fopen(path, "r"); if (!f) break; fclose(f); } }
         say(app_save(path) ? "SAVED" : "COULD NOT SAVE"); nfiles = 0; break;
-      case 3: if (nfiles) { snprintf(full, sizeof full, "%s/%s", levelsDir, files[fileIx]); say(app_load(full) ? "LOADED" : "COULD NOT LOAD"); mode = M_SHAPE; } return;
-      case 4: new_level(); say("NEW LEVEL"); mode = M_SHAPE; return;
-      case 5: quit = 1; return;
+      case 4: if (nfiles) { snprintf(full, sizeof full, "%s/%s", levelsDir, files[fileIx]); say(app_load(full) ? "LOADED" : "COULD NOT LOAD"); mode = M_SHAPE; } return;
+      case 5: new_level(); say("NEW LEVEL"); mode = M_SHAPE; return;
+      case 6: quit = 1; return;
     }
   }
   if (pressed(p, PAD_B) || pressed(p, PAD_START)) mode = M_SHAPE;
 }
 static void play_frame(const Pad *p) {
+  if (talkOn) {                               // reading what a tile says: A / B turn the page, then close
+    if (pressed(p, PAD_A) || pressed(p, PAD_B)) { static uint8_t tmp[64 * 64]; if (++talkPage >= vmx_talk(tmp, talk, 0)) talkOn = 0; }
+    if (pressed(p, PAD_START)) talkOn = 0;
+    return;
+  }
   if (popT) { popT--; return; }
   if (wonT) { wonT++; if (pressed(p, PAD_A) || pressed(p, PAD_B)) mode = M_SHAPE; return; }
   int d;
@@ -467,8 +581,14 @@ static void play_frame(const Pad *p) {
     if (popWord) popT = 30;
     if (fold_solved(&G)) wonT = 1;
   }
-  if (pressed(p, PAD_A)) fold_undo(&G);
-  if (pressed(p, PAD_B) || pressed(p, PAD_START)) mode = M_SHAPE;
+  if (pressed(p, PAD_A)) {                    // talk to the tile you face (or the one you stand on)
+    int c = fold_facing(&G);
+    if (!fold_describe(&G, c, talk, sizeof talk)) fold_describe(&G, G.p, talk, sizeof talk);
+    if (talk[0]) { talkOn = 1; talkPage = 0; }
+  }
+  if (p->held & PAD_B) { if (++holdB == 20) { fold_start(&G, &PL); popT = 0; say("RESTART"); } }   // B undo, held: restart
+  else { if (holdB > 0 && holdB < 20) fold_undo(&G); holdB = 0; }
+  if (pressed(p, PAD_START)) mode = M_SHAPE;
 }
 
 // ---- frame -------------------------------------------------------------------------------------------------------
@@ -483,6 +603,8 @@ void app_frame(const Pad *p) {
     case M_PROPS: props_frame(p); break;
     case M_MENU: menu_frame(p); break;
     case M_PLAY: play_frame(p); break;
+    case M_TILE: tile_frame(p); break;
+    case M_WIRE: wire_frame(p); break;
   }
   prev = p->held;
 }
@@ -490,11 +612,6 @@ void app_frame(const Pad *p) {
 // ---- drawing -----------------------------------------------------------------------------------------------------
 static uint32_t texbuf[2][56 * 56];
 static uint8_t bits[64 * 64];
-static void room_tex(int f, int rot, uint32_t *out, uint32_t lit, uint32_t dark) {   // the VMX room as a 56x56 texture
-  memset(bits, 0, sizeof bits);
-  vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, f, rot, L.player, &S, 0);
-  for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) out[y * 56 + x] = bits[(y + 8) * 64 + x + 4] ? lit : dark;
-}
 // ---- the shape in 3D: tiles with their rooms, walls as brick blocks, boxes as crates, the player standing up ------
 static Vec3 vadd(Vec3 a, Vec3 b) { return v3f(a.x + b.x, a.y + b.y, a.z + b.z); }
 static Vec3 vsc(Vec3 a, float k) { return v3f(a.x * k, a.y * k, a.z * k); }
@@ -718,12 +835,13 @@ void app_draw(void) {
   if (mode == M_PLAY) {
     static uint8_t b[64 * 64];
     vmx_game(b, &G, 1, popT ? popWord : NULL);
+    if (talkOn) vmx_talk(b, talk, talkPage);
     if (wonT) { for (int y = 24; y < 40; y++) for (int x = 6; x < 58; x++) b[y * 64 + x] = 0; vmx_text(b, 20, 26, "CLEAR!"); snprintf(s, sizeof s, "%d MOVES", G.moves); vmx_text(b, 32 - 2 * (int)strlen(s) + 1, 33, s); }
     draw_vmx(GW / 2 - 160, 52, 5, b);
-    gfx_text(20, 20, 2, C_TEXT, "PLAYTEST   DPAD/STICK MOVE   A UNDO   B BACK");
+    gfx_text(20, 20, 2, C_TEXT, "PLAYTEST  MOVE  A TALK  B UNDO (HOLD: RESTART)  START BACK");
     return;
   }
-  if (mode == M_ROOM) draw_room_editor();
+  if (mode == M_ROOM || mode == M_TILE || (mode == M_PROPS && propsBack == M_ROOM)) draw_room_editor();
   else {
     draw_shape();
     gfx_text(16, 14, 2, C_TEXT, "LEVEL   STICK MOVE  A PLACE CELL  B REMOVE  DPAD FOLD  L/R TURN");
@@ -738,25 +856,74 @@ void app_draw(void) {
     }
   }
   if (mode == M_PROPS) {
-    int i = propSq, n = nbuttons();
-    gfx_rect(120, 120, 400, 210, 0x000000); gfx_frame(120, 120, 400, 210, C_HI);
-    snprintf(s, sizeof s, "CELL %d SETTINGS", i); gfx_text(140, 136, 2, C_HI, s);
-    const char *rows[4]; char r1[64], r2[64], r3[64];
-    snprintf(r1, sizeof r1, "MOVE: %s", FUNCS[func_index(&func[i])]);
-    if (trig[i] > n) trig[i] = 0;
-    if (trig[i]) snprintf(r2, sizeof r2, "BUTTON: %d OF %d", trig[i], n); else snprintf(r2, sizeof r2, "BUTTON: NONE (%d PLACED)", n);
-    snprintf(r3, sizeof r3, "BACK SIDE: %s", sides[i] & 2 ? "ON" : "OFF");
-    rows[0] = r1; rows[1] = r2; rows[2] = r3; rows[3] = "DELETE CELL (A)";
-    for (int k = 0; k < 4; k++) gfx_text(150, 172 + k * 26, 2, k == prow ? C_HI : C_TEXT, rows[k]);
-    gfx_text(140, 300, 2, C_DIM, "UP/DOWN PICK   LEFT/RIGHT CHANGE   B DONE");
+    int i = propSq, rows[8], nr = prop_rows(i, rows);
+    gfx_rect(110, 110, 420, 60 + nr * 26 + 30, 0x000000); gfx_frame(110, 110, 420, 60 + nr * 26 + 30, C_HI);
+    snprintf(s, sizeof s, "CELL %d SETTINGS", i); gfx_text(130, 126, 2, C_HI, s);
+    for (int k = 0; k < nr; k++) {
+      char r[64];
+      switch (rows[k]) {
+        case P_MOVE: snprintf(r, sizeof r, "MOVE: %s", FUNCS[func_index(&func[i])]); break;
+        case P_SIGNAL: if (trig[i]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", trig[i]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
+        case P_TURNMODE: snprintf(r, sizeof r, "TURNS: %s", func[i].kind == 'R' ? "WHILE ON (BACK WHEN OFF)" : "A QUARTER EACH CHANGE"); break;
+        case P_BACK: snprintf(r, sizeof r, "BACK SIDE: %s", sides[i] & 2 ? "ON" : "OFF"); break;
+        default: snprintf(r, sizeof r, "DELETE CELL (A)");
+      }
+      gfx_text(140, 162 + k * 26, 2, k == prow ? C_HI : C_TEXT, r);
+    }
+    gfx_text(130, 162 + nr * 26 + 6, 2, C_DIM, "UP/DOWN PICK   LEFT/RIGHT CHANGE   B DONE");
+  }
+  if (mode == M_TILE) {
+    int c = tcell, rows[8], nr = tile_rows(c, rows);
+    // what it will say in the game, worked out from the level as it stands
+    static FoldGame tg; build(&PL); fold_start(&tg, &PL); char said[FOLD_TEXTLEN * 2];
+    if (!fold_describe(&tg, c, said, sizeof said)) snprintf(said, sizeof said, "(NOTHING)");
+    int h = 70 + nr * 26 + 60;
+    gfx_rect(60, 90, 520, h, 0x000000); gfx_frame(60, 90, 520, h, C_HI);
+    gfx_text(80, 104, 2, C_HI, "TILE SETTINGS");
+    for (int k = 0; k < nr; k++) {
+      char r[64];
+      switch (rows[k]) {
+        case T_SENDS: if (L.btn[c]) snprintf(r, sizeof r, "SENDS SIGNAL: %d", L.btn[c]); else snprintf(r, sizeof r, "SENDS SIGNAL: NONE"); break;
+        case T_WORKED: if (L.drv[c]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", L.drv[c]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
+        case T_STARTS: snprintf(r, sizeof r, L.kind[c] == FK_TELE ? "STARTS: %s" : "STARTS: %s", L.kind[c] == FK_TELE ? (L.aux[c] & 0x80 ? "OFF" : "ON") : (L.aux[c] & 0x80 ? "OPEN" : "SHUT")); break;
+        case T_LOOKS: snprintf(r, sizeof r, "LOOKS LIKE: %s", L.aux[c] & 0x40 ? "A BRICK WALL" : "A GATE"); break;
+        default: snprintf(r, sizeof r, "CELL SETTINGS (A)");
+      }
+      gfx_text(90, 136 + k * 26, 2, k == trow ? C_HI : C_TEXT, r);
+    }
+    int ty = 136 + nr * 26 + 6;
+    gfx_text(80, ty, 2, C_DIM, "SAYS:");
+    char line[64]; int at = 0, li = 0, n = (int)strlen(said);   // wrap the text to the box
+    while (at < n && li < 2) { int take = n - at > 40 ? 40 : n - at; if (take == 40) while (take > 1 && said[at + take] != ' ') take--; memcpy(line, said + at, (size_t)take); line[take] = 0; gfx_text(150, ty + li * 16, 2, C_TEXT, line); at += take; while (said[at] == ' ') at++; li++; }
+  }
+  if (mode == M_WIRE) {
+    gfx_rect(20, 60, 600, 400, 0x000000); gfx_frame(20, 60, 600, 400, C_HI);
+    gfx_text(40, 74, 3, C_HI, "WIRING");
+    gfx_text(240, 80, 2, C_DIM, "L/R FIELD  LEFT/RIGHT CHANGE  X DELETE  B DONE");
+    char r[96];
+    if (L.allSig) snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS SIGNAL %d", L.allSig); else snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS: NONE");
+    gfx_text(50, 116, 2, wrow == 0 ? C_HI : C_TEXT, r);
+    for (int k = 0; k < L.nlogic && k < 12; k++) {
+      const FoldLogic *q = &L.logic[k]; int y = 144 + k * 22, x = 50, sel = wrow == k + 1;
+      char fld[7][16];
+      snprintf(fld[0], 16, "%d =", q->out); snprintf(fld[1], 16, "%s", OPNAMES[q->op]);
+      if (q->op == FL_COUNT) snprintf(fld[2], 16, "%d OF", q->count); else snprintf(fld[2], 16, " ");
+      for (int i2 = 0; i2 < 4; i2++) { if (q->in[i2]) snprintf(fld[3 + i2], 16, "%d", q->in[i2]); else snprintf(fld[3 + i2], 16, "-"); }
+      for (int f2 = 0; f2 < 7; f2++) {
+        uint32_t col = sel && f2 == wfield ? C_CURSOR : sel ? C_HI : C_TEXT;
+        gfx_text(x, y, 2, col, fld[f2]); x += gfx_text_w(2, fld[f2]) + 16;
+      }
+    }
+    gfx_text(50, 144 + L.nlogic * 22 + 8, 2, wrow == L.nlogic + 1 ? C_HI : C_DIM, "ADD A LOGIC PIECE (A)");
+    gfx_text(40, 430, 2, C_DIM, "SIGNALS: BUTTONS, PLATES, SENSORS... SEND THEM (Y ON A TILE)");
   }
   if (mode == M_MENU) {
-    gfx_rect(170, 100, 300, 250, 0x000000); gfx_frame(170, 100, 300, 250, C_HI);
+    gfx_rect(170, 100, 300, 270, 0x000000); gfx_frame(170, 100, 300, 270, C_HI);
     gfx_text(190, 116, 3, C_HI, "MENU");
-    for (int k = 0; k < 6; k++) {
+    for (int k = 0; k < NMENU; k++) {
       char row[96];
       if (k == 1) snprintf(row, sizeof row, "VMX WINDOW: %s", vmxWin ? "ON" : "OFF");
-      else if (k == 3) snprintf(row, sizeof row, "LOAD: %s", nfiles ? files[fileIx] : "-");
+      else if (k == 4) snprintf(row, sizeof row, "LOAD: %s", nfiles ? files[fileIx] : "-");
       else snprintf(row, sizeof row, "%s", MENU[k]);
       gfx_text(196, 160 + k * 28, 2, k == mrow ? C_HI : C_TEXT, row);
     }
