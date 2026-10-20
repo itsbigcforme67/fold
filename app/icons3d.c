@@ -1,6 +1,6 @@
 // FOLD app: the level view's control pictures, in real 3D (the owner's idea): small models on the brushed-metal
 // panels, drawn every frame, that move and play up what a control does when it is used: the thumbstick tilts and the
-// cursor slides on its grid; the D-pad tips, its ribbon arrows spin and the planes turn; face buttons sink and glow;
+// cursor slides on its grid; the D-pad tips, the arrow curling round it that way pops and the planes turn; face buttons sink and glow;
 // the camera turns with the right stick. The stick, D-pad and button models are the Duke controller's parts from the
 // VMX film (assets/duke.mesh, made by tools/make_duke.py); until that file loads, simple stand-in shapes are drawn.
 #include "icons3d.h"
@@ -15,7 +15,7 @@ static Vec3 eye;                               // the current icon's camera (for
 static const float LX = 0.38f, LY = -0.52f, LZ = 0.76f;   // light: up, to the side, a little towards the camera
 
 // smoothed control state, eased each frame towards the pad
-static float stX, stY, rsX, rsY, dpX, dpY, spin, spinV = 0.03f, planeRx, planeRz, goalRx, goalRz, press[4], curX, curY;
+static float stX, stY, rsX, rsY, dpX, dpY, spin, spinV = 0.03f, planeRx, planeRz, goalRx, goalRz, press[4], curX, curY, pop[4];   // pop: D-pad up right down left
 static unsigned prevHeld; static int tt;
 
 void icons_update(const Pad *p) {
@@ -24,11 +24,12 @@ void icons_update(const Pad *p) {
   rsX += (p->rx - rsX) * 0.3f; rsY += (p->ry - rsY) * 0.3f;
   float dx = (p->held & PAD_RIGHT ? 1.f : 0.f) - (p->held & PAD_LEFT ? 1.f : 0.f), dy = (p->held & PAD_DOWN ? 1.f : 0.f) - (p->held & PAD_UP ? 1.f : 0.f);
   dpX += (dx - dpX) * 0.35f; dpY += (dy - dpY) * 0.35f;
-  unsigned now = p->held & ~prevHeld;           // D-pad presses spin the ribbons and turn the planes
-  if (now & PAD_UP) { goalRx -= 90; spinV = 0.25f; }
-  if (now & PAD_DOWN) { goalRx += 90; spinV = -0.25f; }
-  if (now & PAD_LEFT) { goalRz -= 90; spinV = -0.25f; }
-  if (now & PAD_RIGHT) { goalRz += 90; spinV = 0.25f; }
+  unsigned now = p->held & ~prevHeld;           // D-pad presses pop their arrow and turn the planes
+  if (now & PAD_UP) { goalRx -= 90; pop[0] = 1; }
+  if (now & PAD_RIGHT) { goalRz += 90; pop[1] = 1; }
+  if (now & PAD_DOWN) { goalRx += 90; pop[2] = 1; }
+  if (now & PAD_LEFT) { goalRz -= 90; pop[3] = 1; }
+  for (int k = 0; k < 4; k++) pop[k] *= 0.88f;
   spinV += ((p->rx != 0 ? p->rx * 0.15f : 0.03f) - spinV) * 0.05f;
   spin += spinV;
   planeRx += (goalRx - planeRx) * 0.18f; planeRz += (goalRz - planeRz) * 0.18f;
@@ -158,6 +159,23 @@ static float part_h(int k) {                    // how tall a part stands (mm), 
   return hi - lo;
 }
 
+// an arrow curling round a ball (middle c, radius r): from th0 degrees off its pole f (the side facing the camera)
+// towards d, round behind to th1; width w, with a head. Like the four round the D-pad in the owner's sketch.
+static void curl(Vec3 c, float r, Vec3 f, Vec3 d, float th0, float th1, float w, uint32_t col) {
+  const float head = 30; float ae = th1 - head;
+  Vec3 A = v3f(f.y * d.z - f.z * d.y, f.z * d.x - f.x * d.z, f.x * d.y - f.y * d.x);
+  #define CP(th, off) v3f(c.x + (cosf((th) * PI / 180) * f.x + sinf((th) * PI / 180) * d.x) * r + A.x * (off), \
+                          c.y + (cosf((th) * PI / 180) * f.y + sinf((th) * PI / 180) * d.y) * r + A.y * (off), \
+                          c.z + (cosf((th) * PI / 180) * f.z + sinf((th) * PI / 180) * d.z) * r + A.z * (off))
+  int n = (int)((ae - th0) / 7) + 1;
+  for (int i = 0; i < n; i++) {
+    float a0 = th0 + (ae - th0) * i / n, a1 = th0 + (ae - th0) * (i + 1) / n;
+    quad(CP(a0, -w / 2), CP(a1, -w / 2), CP(a1, w / 2), CP(a0, w / 2), col, col);
+  }
+  quad(CP(ae, -w), CP(th1, 0), CP(th1, 0), CP(ae, w), col, col);
+  #undef CP
+}
+
 // set up a small camera for a panel: the scene's middle at the panel's middle, span units filling its width
 static void scene(int x, int y, int w, int h, float dist, float elev, float span) {   // span: units across the panel
   gfx_clip(x, y, w, h); gfx_zclear_rect(x, y, w, h); gfx_fog(0, 1e9f, 2e9f);   // no fog on the icons
@@ -220,9 +238,17 @@ void icons_dpad(int x, int y, int w, int h) {    // the D-pad turns the working 
     box(&d, 0, 0, 0.13f, 1.12f, 0.36f, 0.14f, INK); box(&d, 0, 0, 0.13f, 0.36f, 1.12f, 0.14f, INK);
     cyl(&d, 0.14f, 0.2f, 0.22f, 0x2a2a2a, 0x3a3a3a);
   }
-  Xf r = rot(b, 0, 14);                                                 // the ribbon arrows round it
-  ribbon(&r, 1.05f, spin * 57 + 20, spin * 57 + 140, 0.35f, 0.4f, YEL, YEL);
-  ribbon(&r, 1.05f, spin * 57 + 200, spin * 57 + 320, 0.35f, 0.4f, YEL, YEL);
+  for (int k = 0; k < 4; k++) {                                         // four arrows curling round it, one each way
+    float dx = k == 1 ? 1.f : k == 3 ? -1.f : 0.f, dy = k == 0 ? 1.f : k == 2 ? -1.f : 0.f, q = pop[k];
+    Vec3 c = P(&b, 0, 0, 0.1f), e = sub3(eye, c); float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z);
+    Vec3 f0 = v3f(e.x / el, e.y / el, e.z / el), up = v3f(0, f0.z, -f0.y);   // towards the camera; screen up
+    const float tc = cosf(0.5f), ts = sinf(0.5f);                       // the ball's pole tipped up-left, to see them wrap
+    Vec3 tilt = v3f(-0.6f, 0.8f * up.y, 0.8f * up.z), f = v3f(f0.x * tc + tilt.x * ts, f0.y * tc + tilt.y * ts, f0.z * tc + tilt.z * ts);
+    Vec3 d0 = v3f(dx, dy * up.y, dy * up.z); float fd = d0.x * f.x + d0.y * f.y + d0.z * f.z;
+    Vec3 d = v3f(d0.x - f.x * fd, d0.y - f.y * fd, d0.z - f.z * fd); float dl = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+    d = v3f(d.x / dl, d.y / dl, d.z / dl);                              // that way on screen, square to the pole
+    curl(c, 1.0f + q * 0.2f, f, d, 45 - q * 8, 165 + q * 20, 0.36f + q * 0.12f, brighter(YEL, q * 0.6f));
+  }
   Xf p = rot(rot(xf(v3f(1.3f, 0, 0.35f)), 0, planeRx), 2, planeRz);    // the planes, turning with each press
   const float s = 0.55f;
   quad(P(&p, -s, 0, -s), P(&p, s, 0, -s), P(&p, s, 0, s), P(&p, -s, 0, s), 0xe03030, 0xa02020);

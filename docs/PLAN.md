@@ -25,8 +25,8 @@ See `docs/FORMAT.md`. The levels in `levels/` were exported from the JavaScript 
 ## Done (2026-10-20): live 3D control icons in the level view
 
 The level view's corner panels (brushed metal) hold real 3D controls drawn live by app/icons3d.c, moving and playing
-up their point when used: the stick tilts and the cursor slides on its grid; the D-pad tips, its ribbon arrows spin
-and the planes turn; face buttons sink and glow; the camera turns with the right stick. Ribbon arrows are yellow on
+up their point when used: the stick tilts and the cursor slides on its grid; the D-pad tips, the one of its four curling arrows
+(owner's sketch: they wrap round it like a ball) that way pops, and the planes turn; face buttons sink and glow; the camera turns with the right stick. Ribbon arrows are yellow on
 both sides. The stick, D-pad and face-button models are the Duke parts from the VMX film (`XMU GADGET/anim/duke/
 part_*.stl`), turned into assets/duke.mesh by tools/make_duke.py (Blender headless: weld, decimate to ~500-1800
 triangles, icon frame). They are drawn with smooth per-corner light and a shine (gfx_tri_lit). Without the file the
