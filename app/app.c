@@ -19,7 +19,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>   // the Xbox (nxdk): FindFirstFile
+#else
 #include <dirent.h>
+#endif
 
 #define N FOLD_N
 #define NN FOLD_NN
@@ -212,10 +216,18 @@ int app_load(const char *p) {
   return 1;
 }
 static int list_levels(char names[][64], int max) {
-  DIR *d = opendir(levelsDir); int n = 0; if (!d) return 0;
+  int n = 0;
+#ifdef _WIN32
+  char pat[300]; snprintf(pat, sizeof pat, "%s\\*.fold", levelsDir);
+  WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA(pat, &fd); if (h == INVALID_HANDLE_VALUE) return 0;
+  do { if (n < max) snprintf(names[n++], 64, "%s", fd.cFileName); } while (FindNextFileA(h, &fd));
+  FindClose(h);
+#else
+  DIR *d = opendir(levelsDir); if (!d) return 0;
   struct dirent *e;
   while ((e = readdir(d)) && n < max) { size_t l = strlen(e->d_name); if (l > 5 && !strcmp(e->d_name + l - 5, ".fold")) snprintf(names[n++], 64, "%s", e->d_name); }
   closedir(d);
+#endif
   for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) if (strcmp(names[j], names[i]) < 0) { char tmp[64]; strcpy(tmp, names[i]); strcpy(names[i], names[j]); strcpy(names[j], tmp); }
   return n;
 }

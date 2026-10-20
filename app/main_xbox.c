@@ -1,0 +1,89 @@
+// FOLD app on the original Xbox (nxdk): the same editor and game as the PC. The software renderer's 640x480 picture
+// is copied to the TV's framebuffer each frame; the Duke pad comes through nxdk's SDL2 game controller. Assets and
+// levels are read from the XBE's own folder (D:), see xbox/xbox_compat.h. Built by xbox/Makefile.
+#include "app.h"
+#include "gfx.h"
+#include "padscript.h"
+#include <hal/video.h>
+#include <hal/xbox.h>
+#include <windows.h>
+#include <SDL.h>
+#include <stdio.h>
+#include <string.h>
+
+#undef fopen
+FILE *xbox_fopen(const char *path, const char *mode) {   // "assets/x" -> "D:\assets\x"; '/' -> '\'
+  char p[300]; size_t n = 0;
+  if (!strchr(path, ':')) { strcpy(p, "D:\\"); n = 3; }
+  for (; *path && n < sizeof p - 1; path++) p[n++] = *path == '/' ? '\\' : *path;
+  p[n] = 0;
+  return fopen(p, mode);
+}
+
+// log lines out of COM1, where xemu's debug-kit Super I/O (-device lpc47m157) writes them to a file; a retail Xbox
+// has nothing there (the line status reads 0xFF) and gets nothing
+static unsigned char inb(unsigned short port) { unsigned char v; __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+static void outb(unsigned short port, unsigned char v) { __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(port)); }
+static void serial(const char *s) {
+  if (inb(0x3FD) == 0xFF) return;
+  for (; *s; s++) { int t = 100000; while (!(inb(0x3FD) & 0x20) && --t) {} outb(0x3F8, (unsigned char)*s); }
+}
+
+static float axis(SDL_GameController *c, SDL_GameControllerAxis a, int flip) {
+  float v = SDL_GameControllerGetAxis(c, a) / 32767.0f * (flip ? -1 : 1);
+  if (v > -0.2f && v < 0.2f) return 0;                 // dead zone
+  return v > 1 ? 1 : v < -1 ? -1 : v;
+}
+static void read_pad(SDL_GameController *c, Pad *p) {
+  memset(p, 0, sizeof *p);
+  if (!c) return;
+  p->lx = axis(c, SDL_CONTROLLER_AXIS_LEFTX, 0); p->ly = axis(c, SDL_CONTROLLER_AXIS_LEFTY, 0);
+  p->rx = axis(c, SDL_CONTROLLER_AXIS_RIGHTX, 0); p->ry = axis(c, SDL_CONTROLLER_AXIS_RIGHTY, 0);
+  static const struct { SDL_GameControllerButton b; unsigned bit; } M[] = {
+    { SDL_CONTROLLER_BUTTON_DPAD_UP, PAD_UP }, { SDL_CONTROLLER_BUTTON_DPAD_DOWN, PAD_DOWN },
+    { SDL_CONTROLLER_BUTTON_DPAD_LEFT, PAD_LEFT }, { SDL_CONTROLLER_BUTTON_DPAD_RIGHT, PAD_RIGHT },
+    { SDL_CONTROLLER_BUTTON_A, PAD_A }, { SDL_CONTROLLER_BUTTON_B, PAD_B }, { SDL_CONTROLLER_BUTTON_X, PAD_X },
+    { SDL_CONTROLLER_BUTTON_Y, PAD_Y }, { SDL_CONTROLLER_BUTTON_START, PAD_START }, { SDL_CONTROLLER_BUTTON_BACK, PAD_BACK },
+    { SDL_CONTROLLER_BUTTON_RIGHTSTICK, PAD_RS },
+    { SDL_CONTROLLER_BUTTON_LEFTSHOULDER, PAD_L }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PAD_R } };   // white / black
+  for (unsigned i = 0; i < sizeof M / sizeof M[0]; i++) if (SDL_GameControllerGetButton(c, M[i].b)) p->held |= M[i].bit;
+  // the triggers are L and R too (the Duke's white / black come through as the shoulder buttons)
+  if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 12000) p->held |= PAD_L;
+  if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000) p->held |= PAD_R;
+}
+
+int main(void) {
+  XVideoSetMode(640, 480, 32, REFRESH_DEFAULT);
+  SDL_Init(SDL_INIT_GAMECONTROLLER);
+  app_init("D:\\levels");
+  SDL_GameController *pad = NULL;
+  int demo = padscript_open("D:\\demo.txt");          // a pad script on the disc plays first (tests, attract)
+  serial(demo ? "FOLD: playing D:\\demo.txt\n" : "FOLD: started\n");
+  Uint32 last = SDL_GetTicks(), fpsT = last; int frames = 0, fps = 0;
+  while (!app_quit()) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+      if (e.type == SDL_CONTROLLERDEVICEADDED && !pad) pad = SDL_GameControllerOpen(e.cdevice.which);
+      else if (e.type == SDL_CONTROLLERDEVICEREMOVED && pad && SDL_GameControllerFromInstanceID(e.cdevice.which) == pad) { SDL_GameControllerClose(pad); pad = NULL; }
+    }
+    Pad p; read_pad(pad, &p);
+    // the app ticks at 30 Hz: run as many ticks as time has passed (at most 4), then draw once
+    Uint32 now = SDL_GetTicks(); int ticks = (int)((now - last) / 33);
+    if (ticks < 1) { XVideoWaitForVBlank(); continue; }
+    if (ticks > 4) ticks = 4;
+    last += (Uint32)ticks * 33; if (now - last > 200) last = now;
+    for (int k = 0; k < ticks; k++) {
+      if (demo && !padscript_next(&p)) { demo = 0; serial("FOLD: demo ended\n"); }
+      app_frame(&p);
+    }
+    app_draw();
+    frames++;
+    if (now - fpsT >= 1000) { char s[48]; fps = frames; frames = 0; fpsT = now; snprintf(s, sizeof s, "FOLD: %d fps\n", fps); serial(s); }
+    if (p.held & PAD_BACK && p.held & PAD_START) { char s[16]; snprintf(s, sizeof s, "%d FPS", fps); gfx_text5(GW - 60, GH - 14, 1, 0xffffff, s); }
+    unsigned char *fb = XVideoGetFB();
+    memcpy(fb, gfx_px, sizeof gfx_px);                   // 640x480 X8R8G8B8, the same layout as gfx_px
+    XVideoFlushFB();
+  }
+  SDL_Quit();
+  return 0;                                            // back to the dashboard
+}
