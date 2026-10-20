@@ -67,7 +67,7 @@ int main(void) {
   // ---- pressure plate: a plate turns the other cell while a box is on it ----
   load("fold 1\nname T5\nsquare 0 0 0  1 0 0  0 1 0\nsquare 1 0 0  1 0 0  0 1 0\n"
        "room 0 f\n########\n#......#\n#.pb=..#\n#......#\n#......#\n#......#\n#......#\n########\n"
-       "room 1 f\n########\n#......#\n#......#\n#......#\n#......#\n#......#\n#......#\n########\nlink 1 r1\n");
+       "room 1 f\n########\n#......#\n#......#\n#......#\n#......#\n#......#\n#......#\n########\nlink 1 R1\n");
   moves("r"); tests++; { int ok = g.turns[1] == 1; printf("%-44s %s\n", "plate: a box on it turns the cell", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   moves("r"); tests++; { int ok = g.turns[1] == 0; printf("%-44s %s\n", "plate: pushed off, the cell turns back", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   expect("plate: undo through press and release", CELL(0, 4, 2), (int[]){ CELL(0, 5, 2) }, 1);
@@ -82,7 +82,7 @@ int main(void) {
   // ---- key + lock ----
   load(level("########\n#......#\n#.p.k..#\n#......#\n#.l....#\n#.b....#\n#......#\n########\n"));
   { FoldGame t = g; fold_move(&t, 2); fold_move(&t, 2); tests++; int ok = t.p == CELL(0, 2, 3); printf("%-44s %s\n", "lock: no key, it's a wall", ok ? "ok" : "WRONG"); if (!ok) fails++; }
-  moves("rr"); tests++; { int ok = g.keys[0] == 1 && g.kind[CELL(0, 4, 2)] == FK_FLOOR; printf("%-44s %s\n", "key: picked up", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  moves("rr"); tests++; { int ok = g.keys[0] == 1 && (g.aux[CELL(0, 4, 2)] & 0x80); printf("%-44s %s\n", "key: picked up", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   moves("lldd"); tests++; { int ok = g.keys[0] == 0 && g.p == CELL(0, 2, 4); printf("%-44s %s\n", "lock: a key opens it and is used up", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   expect("key + lock: undo puts key and lock back", CELL(0, 2, 4), (int[]){ CELL(0, 2, 5) }, 1);
   // ---- player-only grate ----
@@ -90,6 +90,54 @@ int main(void) {
   moves("r"); expect("grate: a box can't be pushed onto it", CELL(0, 2, 2), (int[]){ CELL(0, 3, 2), CELL(0, 2, 5) }, 2);
   g = g0; moves("drd"); expect("grate: you can walk over it", CELL(0, 3, 4), (int[]){ CELL(0, 3, 2), CELL(0, 2, 5) }, 2);
   g = g0; moves("lddd" "r"); expect("grate: a sliding box stops before it", CELL(0, 2, 5), (int[]){ CELL(0, 3, 2), CELL(0, 4, 5) }, 2);
+  // ---- signals and logic ----
+  #define CHECK(name, cond) do { tests++; int ok_ = (cond); printf("%-44s %s\n", name, ok_ ? "ok" : "WRONG"); if (!ok_) fails++; } while (0)
+  #define OPEN(x, y) ((g.aux[CELL(0, x, y)] & 0x80) != 0)
+  // two plates feed an AND that opens a gate
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#.pb=..#\n#......#\n#..|...#\n########\n"
+             "logic 3 and 1 2\ndrive 0 f 3 6 3\n"));
+  { FoldLevel lv2 = lv; lv2.player = CELL(0, 2, 2); }
+  g.p = CELL(0, 2, 2); fold_move(&g, 1); CHECK("logic: AND, one plate held: shut", !OPEN(3, 6));
+  g.p = CELL(0, 2, 4); fold_move(&g, 1); CHECK("logic: AND, both plates held: open", OPEN(3, 6));
+  // XOR
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#.pb=..#\n#......#\n#..|...#\n########\nlogic 3 xor 1 2\ndrive 0 f 3 6 3\n"));
+  g.p = CELL(0, 2, 2); fold_move(&g, 1); CHECK("logic: XOR, one held: open", OPEN(3, 6));
+  g.p = CELL(0, 2, 4); fold_move(&g, 1); CHECK("logic: XOR, both held: shut", !OPEN(3, 6));
+  // NOT: the gate is open until a plate is held
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#......#\n#......#\n#..|...#\n########\nlogic 3 not 1\ndrive 0 f 3 6 3\n"));
+  CHECK("logic: NOT, nothing held: open from the start", OPEN(3, 6));
+  moves("r"); CHECK("logic: NOT, held: shut", !OPEN(3, 6));
+  { char t[200]; fold_describe(&g, CELL(0, 3, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: a NOT gate's wording", strstr(t, "OPENS WHEN NOT") != NULL); }
+  // latch: once the plate is held, the gate stays open after the box leaves
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#......#\n#......#\n#..|...#\n########\nlogic 3 latch 1\ndrive 0 f 3 6 3\n"));
+  moves("r"); moves("r"); CHECK("logic: latch stays on", OPEN(3, 6));
+  // counter: a button pressed twice (push a box on, off, on again)
+  load(level("########\n#......#\n#.pbo..#\n#......#\n#......#\n#......#\n#..|...#\n########\nlogic 3 count 2 1\ndrive 0 f 3 6 3\n"));
+  moves("r"); CHECK("logic: counter, once: shut", !OPEN(3, 6));
+  load(level("########\n#......#\n#.pbo..#\n#...b..#\n#......#\n#......#\n#..|...#\n########\nlogic 3 count 2 1\ndrive 0 f 3 6 3\n"));
+  moves("r" "rd" "ll" "u" "u"); /* box 1 on, round the back, push box 2 up... */
+  CHECK("logic: counter counts switch-ons", g.lstate[0] >= 1);
+  // sensor: you standing on it opens the gate; stepping off shuts it
+  load(level("########\n#......#\n#.p*...#\n#......#\n#......#\n#......#\n#..|...#\n########\nsignal 0 f 3 2 1\ndrive 0 f 3 6 1\n"));
+  moves("r"); CHECK("input: sensor on while you stand on it", OPEN(3, 6));
+  moves("r"); CHECK("input: and off when you leave", !OPEN(3, 6));
+  // a box on a target; all targets filled
+  load(level("########\n#......#\n#.pbx..#\n#......#\n#......#\n#......#\n#..|.|.#\n########\nsignal 0 f 4 2 1\ndrive 0 f 3 6 1\ninput 2 alltargets\ndrive 0 f 5 6 2\n"));
+  moves("r"); CHECK("input: a box on a target", OPEN(3, 6));
+  CHECK("input: every target filled", OPEN(5, 6));
+  // a key taken
+  load(level("########\n#......#\n#.pk...#\n#......#\n#......#\n#......#\n#..|...#\n########\nsignal 0 f 3 2 1\ndrive 0 f 3 6 1\n"));
+  moves("r"); CHECK("input: taking a key", OPEN(3, 6));
+  // outputs: a teleporter switched off, an arrow turned round
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#.1.1..#\n#..>...#\n#......#\n########\ndrive 0 f 2 4 1\ndrive 0 f 3 5 1\n"));
+  moves("r"); CHECK("output: a teleporter switched off", g.aux[CELL(0, 2, 4)] & 0x80);
+  CHECK("output: an arrow turned round", g.aux[CELL(0, 3, 5)] == 3);
+  // talking
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#.pb=..#\n#......#\n#..|...#\n########\nlogic 3 and 1 2\ndrive 0 f 3 6 3\n"));
+  { char t[200]; fold_describe(&g, CELL(0, 4, 2), t, sizeof t); printf("   plate says: %s\n", t); CHECK("talk: a plate in an AND", strstr(t, "1 OF 2 NEEDED") != NULL);
+    fold_describe(&g, CELL(0, 3, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: the gate it works", strstr(t, "A PLATE IS HELD AND A PLATE IS HELD") != NULL); }
+  load(level("########\n#......#\n#.p....#\n#......#\n#......#\n#......#\n#......#\n########\ntext 0 f 2 3 HELLO THERE.\n"));
+  { char t[200]; fold_describe(&g, fold_facing(&g), t, sizeof t); CHECK("talk: a tile's own text, facing it", !strcmp(t, "HELLO THERE.")); }
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

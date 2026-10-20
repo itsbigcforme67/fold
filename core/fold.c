@@ -125,11 +125,12 @@ static void rebuild(FoldGame *g) {
 // ---- changes, logged for undo -----------------------------------------------------------------------------------
 // Every change a move makes goes through set(): the old value is logged, and undo plays the log backwards. That keeps
 // undo exact whatever a move does (slides, room moves, ...).
-enum { A_WALL, A_TARGET, A_BOX, A_BTN, A_KIND, A_AUX, A_FLIPS, A_TURNS, A_MOVED, A_KEYS, A_N };
+enum { A_WALL, A_TARGET, A_BOX, A_BTN, A_KIND, A_AUX, A_DRV, A_TXT, A_FLIPS, A_TURNS, A_MOVED, A_KEYS, A_TOG, A_SIG, A_LST, A_LPREV };
 static uint8_t *arr(FoldGame *g, int a) {
   switch (a) { case A_WALL: return g->wall; case A_TARGET: return g->target; case A_BOX: return g->box; case A_BTN: return g->btn;
-               case A_KIND: return g->kind; case A_AUX: return g->aux; case A_FLIPS: return g->flips; case A_TURNS: return g->turns;
-               case A_KEYS: return g->keys; }
+               case A_KIND: return g->kind; case A_AUX: return g->aux; case A_DRV: return g->drv; case A_TXT: return g->txt;
+               case A_FLIPS: return g->flips; case A_TURNS: return g->turns; case A_KEYS: return g->keys; case A_TOG: return g->toggled;
+               case A_SIG: return g->sig; case A_LST: return g->lstate; case A_LPREV: return g->lprev; }
   return g->moved;
 }
 static void drop_oldest(FoldGame *g) {        // the journal or the move list is full: forget the oldest move
@@ -148,9 +149,9 @@ static void set(FoldGame *g, int a, int i, int v) {
 
 // ---- room moves --------------------------------------------------------------------------------------------------
 // A tile carried to another spot: all its layers move; a direction it holds is turned / mirrored with it.
-typedef struct { uint8_t v[6]; } TileV;
-static TileV tile_get(FoldGame *g, int c) { TileV t = { { g->wall[c], g->target[c], g->box[c], g->btn[c], g->kind[c], g->aux[c] } }; return t; }
-static void tile_put(FoldGame *g, int c, TileV t) { for (int a = 0; a < 6; a++) set(g, a, c, t.v[a]); }
+typedef struct { uint8_t v[8]; } TileV;   // a tile's layers, in A_WALL .. A_TXT order
+static TileV tile_get(FoldGame *g, int c) { TileV t = { { g->wall[c], g->target[c], g->box[c], g->btn[c], g->kind[c], g->aux[c], g->drv[c], g->txt[c] } }; return t; }
+static void tile_put(FoldGame *g, int c, TileV t) { for (int a = 0; a < 8; a++) set(g, a, c, t.v[a]); }
 static void flip_square(FoldGame *g, int i) {
   for (int c = 2 * i * NN; c < (2 * i + 1) * NN; c++) {
     int t = twin(c); TileV a = tile_get(g, c), b = tile_get(g, t);
@@ -182,27 +183,76 @@ static void turn_square(FoldGame *g, int i) {
 static int apply_act(FoldGame *g, const FoldAct *a, int back) {   // back: the opposite move (a turn goes back)
   switch (a->kind) {
     case 'f': flip_square(g, a->sq); return FOLD_FLIPPED;
-    case 'r': for (int k = 0; k < (back ? 3 : 1); k++) turn_square(g, a->sq); return FOLD_TURNED;
-    case 'g':                                 // every gate of this group opens / closes
-      for (int c = 0; c < 2 * g->lv->nsq * NN; c++) if (g->kind[c] == FK_GATE && (g->aux[c] & 0x7f) == a->sq) set(g, A_AUX, c, g->aux[c] ^ 0x80);
-      return FOLD_GATES;
+    case 'r': case 'R': for (int k = 0; k < (back ? 3 : 1); k++) turn_square(g, a->sq); return FOLD_TURNED;
     default: set(g, A_MOVED, a->sq, g->moved[a->sq] ^ 1); rebuild(g); return a->kind == 's' ? FOLD_SHIFTED : FOLD_HINGED;
   }
 }
-// where tile c goes when move a happens (or is undone): a flip / turn carries the tiles of its cell
-static int follow(int c, const FoldAct *a, int back) {
-  if (a->kind == 'g' || (c / NN) >> 1 != a->sq) return c;
-  if (a->kind == 'f') return twin(c);
-  if (a->kind == 'r') for (int k = 0; k < (back ? 3 : 1); k++) c = rot_cell(c);
-  return c;                                   // a shift / hinge moves the cell, not its tiles
+
+// ---- signals -----------------------------------------------------------------------------------------------------
+// Inputs are read from the tiles (they ride along with their cells), logic pieces are worked out in order, and every
+// signal that changed works its outputs. Outputs can move cells, which can change inputs, so it goes round again until
+// nothing changes (or 8 times, against wiring that never settles).
+static int alltargets(const FoldGame *g) {
+  int any = 0;
+  for (int c = 0; c < 2 * g->lv->nsq * NN; c++) if (g->target[c] && !g->wall[c]) { any = 1; if (!g->box[c]) return 0; }
+  return any;
 }
-// button / plate b's moves, in order (or undone, last first); *track follows a tile through them
-static int trigger(FoldGame *g, int b, int back, int *track) {
-  int r = 0, n = g->lv->nact[b];
-  for (int k = 0; k < n; k++) {
-    const FoldAct *a = &g->lv->act[b][back ? n - 1 - k : k];
-    r |= apply_act(g, a, back);
-    if (*track >= 0) *track = follow(*track, a, back);
+static void inputs(FoldGame *g, uint8_t *v) {
+  memset(v, 0, FOLD_MAXSIG);
+  for (int s = 1; s < FOLD_MAXSIG; s++) v[s] = g->toggled[s];
+  for (int c = 0; c < 2 * g->lv->nsq * NN; c++) {
+    int s = g->btn[c]; if (!s || g->wall[c]) continue;
+    switch (g->kind[c]) {
+      case FK_PLATE: v[s] |= g->box[c]; break;
+      case FK_SENSOR: v[s] |= c == g->p; break;
+      case FK_KEY: v[s] |= (g->aux[c] & 0x80) != 0; break;
+      default: if (g->target[c]) v[s] |= g->box[c]; break;   // a plain button is in toggled[]
+    }
+  }
+  if (g->lv->allSig) v[g->lv->allSig] |= (uint8_t)alltargets(g);
+}
+static void logic(FoldGame *g, uint8_t *v) {
+  for (int k = 0; k < g->lv->nlogic; k++) {
+    const FoldLogic *L = &g->lv->logic[k];
+    int on = 0, n = 0;
+    for (int i = 0; i < L->n; i++) n += v[L->in[i]] != 0;
+    switch (L->op) {
+      case FL_AND: on = n == L->n; break;
+      case FL_OR: on = n > 0; break;
+      case FL_XOR: on = n & 1; break;
+      case FL_NOT: on = !v[L->in[0]]; break;
+      case FL_LATCH:
+        if (L->n > 1 && v[L->in[1]]) set(g, A_LST, k, 0); else if (v[L->in[0]]) set(g, A_LST, k, 1);
+        on = g->lstate[k]; break;
+      case FL_COUNT:
+        if (v[L->in[0]] && !g->lprev[k] && g->lstate[k] < 255) set(g, A_LST, k, g->lstate[k] + 1);
+        set(g, A_LPREV, k, v[L->in[0]] != 0);
+        on = g->lstate[k] >= L->count; break;
+    }
+    v[L->out] |= (uint8_t)on;
+  }
+}
+static int outputs(FoldGame *g, int s, int on) {   // signal s just switched on / off
+  int r = 0;
+  for (int k = 0; k < g->lv->nact[s - 1]; k++) {
+    const FoldAct *a = &g->lv->act[s - 1][k];
+    r |= apply_act(g, a, a->kind == 'R' && !on);  // 'R': turned while on, back while off
+  }
+  for (int c = 0; c < 2 * g->lv->nsq * NN; c++) if (g->drv[c] == s && !g->wall[c]) {
+    if (g->kind[c] == FK_GATE || g->kind[c] == FK_TELE) { set(g, A_AUX, c, g->aux[c] ^ 0x80); r |= FOLD_GATES; }
+    else if (g->kind[c] == FK_ONEWAY) { set(g, A_AUX, c, (g->aux[c] + 2) & 3); r |= FOLD_GATES; }
+  }
+  return r;
+}
+static int evaluate(FoldGame *g) {
+  int r = 0;
+  for (int pass = 0; pass < 8; pass++) {
+    uint8_t v[FOLD_MAXSIG]; int changed = 0;
+    inputs(g, v); logic(g, v);
+    for (int s = 1; s < FOLD_MAXSIG; s++) if ((v[s] != 0) != (g->sig[s] != 0)) {
+      set(g, A_SIG, s, v[s] != 0); r |= outputs(g, s, v[s] != 0); changed = 1;
+    }
+    if (!changed) break;
   }
   return r;
 }
@@ -214,8 +264,13 @@ void fold_start(FoldGame *g, const FoldLevel *lv) {
   memcpy(g->wall, lv->wall, sizeof g->wall); memcpy(g->target, lv->target, sizeof g->target);
   memcpy(g->box, lv->box, sizeof g->box); memcpy(g->btn, lv->btn, sizeof g->btn);
   memcpy(g->kind, lv->kind, sizeof g->kind); memcpy(g->aux, lv->aux, sizeof g->aux);
+  memcpy(g->drv, lv->drv, sizeof g->drv); memcpy(g->txt, lv->txt, sizeof g->txt);
   fold_surface(&g->s, lv->sq, lv->nsq);
-  g->p = lv->player; g->camf = g->p / NN; g->camrot = 0;
+  g->p = lv->player; g->camf = g->p / NN; g->camrot = 0; g->facing = 2;
+  // outputs are their drawn state, switched while their signal is on: a signal already on at the start (a NOT, a box
+  // starting on a target...) works its outputs once now. That isn't a move, so it can't be undone.
+  evaluate(g);
+  g->nj = 0;
 }
 // can a box (box = 1) or you (box = 0) go onto tile c, arriving with heading d?
 static int enterable(const FoldGame *g, int c, int d, int box) {
@@ -241,7 +296,8 @@ static int box_slide(FoldGame *g, int c, int d) {
   return c;
 }
 // a teleporter's partner (the other pad with its pair number), or -1
-static int partner(const FoldGame *g, int c) {
+static int partner(const FoldGame *g, int c) {   // (switched-off pads don't work)
+  if (g->aux[c] & 0x80) return -1;
   for (int k = 0; k < 2 * g->lv->nsq * NN; k++) if (k != c && g->kind[k] == FK_TELE && g->aux[k] == g->aux[c] && !g->wall[k]) return k;
   return -1;
 }
@@ -260,9 +316,9 @@ int fold_move(FoldGame *g, int sd) {
   }
   if (g->nundo == FOLD_MAXUNDO) drop_oldest(g);
   FoldUndo *u = &g->undo[g->nundo++];
-  u->p = (int16_t)g->p; u->camf = (uint8_t)g->camf; u->camrot = (uint8_t)g->camrot; u->pushed = c2 >= 0; u->j = g->nj;
+  u->p = (int16_t)g->p; u->camf = (uint8_t)g->camf; u->camrot = (uint8_t)g->camrot; u->pushed = c2 >= 0;
+  u->facing = (uint8_t)g->facing; u->j = g->nj;
   int r = FOLD_MOVED;
-  int offPlate = c2 >= 0 && g->kind[c1] == FK_PLATE && g->btn[c1] ? g->btn[c1] : 0;   // the box is leaving a plate
   if (c2 >= 0) {                              // the push: the box may slide on ice, then press what it stops on
     set(g, A_BOX, c1, 0); set(g, A_BOX, c2, 1); g->pushes++; r |= FOLD_PUSHED;
     g->p = c1;                                 // you are behind it now (so it can't slide back through you)
@@ -283,11 +339,12 @@ int fold_move(FoldGame *g, int sd) {
     int t = partner(g, c);
     if (t >= 0 && !g->box[t]) { c = t; r |= FOLD_TELEPORTED; }
   }
-  if (g->kind[c] == FK_KEY) { set(g, A_KEYS, 0, g->keys[0] + 1); set(g, A_KIND, c, FK_FLOOR); }   // pick up a key
-  g->p = c; g->moves++;
+  if (g->kind[c] == FK_KEY && !(g->aux[c] & 0x80)) { set(g, A_KEYS, 0, g->keys[0] + 1); set(g, A_AUX, c, g->aux[c] | 0x80); }   // a key
+  g->p = c; g->moves++; g->facing = hd;
   if (c / NN != g->camf) { g->camf = c / NN; g->camrot = (hd - sd) & 3; r |= FOLD_CROSSED; }
-  if (offPlate) r |= trigger(g, offPlate - 1, 1, &c2);   // a plate the box left lets go: its moves undo
-  if (c2 >= 0 && g->btn[c2]) r |= trigger(g, g->btn[c2] - 1, 0, &c2);   // a button / plate it landed on
+  // a box landing on a plain button flips its signal; then every signal is worked out and its outputs move
+  if (c2 >= 0 && g->btn[c2] && g->kind[c2] == FK_FLOOR && !g->target[c2]) set(g, A_TOG, g->btn[c2], !g->toggled[g->btn[c2]]);
+  r |= evaluate(g);
   return r;
 }
 int fold_undo(FoldGame *g) {
@@ -301,7 +358,7 @@ int fold_undo(FoldGame *g) {
     if (a == A_MOVED) geo = 1;
   }
   if (geo) rebuild(g);
-  g->p = u->p; g->camf = u->camf; g->camrot = u->camrot; g->moves--; g->pushes -= u->pushed;
+  g->p = u->p; g->camf = u->camf; g->camrot = u->camrot; g->facing = u->facing; g->moves--; g->pushes -= u->pushed;
   return 1;
 }
 int fold_solved(const FoldGame *g) {
@@ -309,11 +366,104 @@ int fold_solved(const FoldGame *g) {
   return 1;
 }
 
+// ---- talking ----------------------------------------------------------------------------------------------------
+int fold_facing(const FoldGame *g) { int nd; return fold_step(&g->s, g->p, g->facing, &nd); }
+// What a tile says. The level's own text if it has one; otherwise what kind of thing it is and what it does, worked
+// out from the wiring, always as "a cell" / "a gate" (never which one or where: finding that out is the game).
+static void cat(char *o, int len, const char *s) { size_t l = strlen(o); if ((int)l < len - 1) { strncpy(o + l, s, (size_t)len - 1 - l); o[len - 1] = 0; } }
+static const char *src_name(const FoldGame *g, int s) {   // what sends signal s
+  for (int c = 0; c < 2 * g->lv->nsq * NN; c++) if (g->btn[c] == s && !g->wall[c]) {
+    switch (g->kind[c]) { case FK_PLATE: return "A PLATE IS HELD"; case FK_SENSOR: return "YOU STAND ON A SENSOR"; case FK_KEY: return "A KEY IS TAKEN"; }
+    return g->target[c] ? "A BOX IS ON A TARGET" : "A BUTTON IS PRESSED";
+  }
+  if (g->lv->allSig == s) return "EVERY TARGET IS FILLED";
+  return NULL;
+}
+static void cond(const FoldGame *g, int s, char *o, int len, int depth) {   // when signal s is on
+  const char *n = src_name(g, s);
+  if (n) { cat(o, len, n); return; }
+  for (int k = 0; k < g->lv->nlogic; k++) if (g->lv->logic[k].out == s) {
+    const FoldLogic *L = &g->lv->logic[k];
+    if (depth > 1) { cat(o, len, "SOMETHING ELSE HAPPENS"); return; }
+    if (L->op == FL_NOT) { cat(o, len, "NOT ("); cond(g, L->in[0], o, len, depth + 1); cat(o, len, ")"); return; }
+    if (L->op == FL_LATCH) { cond(g, L->in[0], o, len, depth + 1); cat(o, len, " (ONCE IS ENOUGH)"); return; }
+    if (L->op == FL_COUNT) { char b[24]; cond(g, L->in[0], o, len, depth + 1); snprintf(b, sizeof b, " %d TIMES", L->count); cat(o, len, b); return; }
+    for (int i = 0; i < L->n; i++) {
+      if (i) cat(o, len, L->op == FL_AND ? " AND " : L->op == FL_OR ? " OR " : " OR ");
+      cond(g, L->in[i], o, len, depth + 1);
+    }
+    if (L->op == FL_XOR) cat(o, len, " (BUT NOT BOTH)");
+    return;
+  }
+  cat(o, len, "SOMETHING HAPPENS");
+}
+static void effect(const FoldGame *g, int s, char *o, int len) {   // what signal s does
+  int n = 0;
+  for (int k = 0; k < g->lv->nact[s - 1]; k++) {
+    char kd = g->lv->act[s - 1][k].kind;
+    cat(o, len, n++ ? " AND " : " IT ");
+    cat(o, len, kd == 'f' ? "FLIPS A CELL" : kd == 's' ? "SHIFTS A CELL" : kd == 'h' ? "HINGES A CELL" : "TURNS A CELL");
+  }
+  int gate = 0, tele = 0, arrow = 0;
+  for (int c = 0; c < 2 * g->lv->nsq * NN; c++) if (g->drv[c] == s) { gate |= g->kind[c] == FK_GATE; tele |= g->kind[c] == FK_TELE; arrow |= g->kind[c] == FK_ONEWAY; }
+  if (gate) { cat(o, len, n++ ? " AND " : " IT "); cat(o, len, "WORKS A GATE"); }
+  if (tele) { cat(o, len, n++ ? " AND " : " IT "); cat(o, len, "SWITCHES A TELEPORTER"); }
+  if (arrow) { cat(o, len, n++ ? " AND " : " IT "); cat(o, len, "TURNS AN ARROW ROUND"); }
+  for (int k = 0; k < g->lv->nlogic; k++) for (int i = 0; i < g->lv->logic[k].n; i++) if (g->lv->logic[k].in[i] == s) {
+    const FoldLogic *L = &g->lv->logic[k]; char b[40];
+    switch (L->op) {
+      case FL_AND: snprintf(b, sizeof b, " IT IS 1 OF %d NEEDED TOGETHER", L->n); break;
+      case FL_OR: snprintf(b, sizeof b, " ANY 1 OF %d WILL DO", L->n); break;
+      case FL_XOR: snprintf(b, sizeof b, " ONLY 1 OF %d AT A TIME", L->n); break;
+      case FL_NOT: snprintf(b, sizeof b, " IT WORKS BACKWARDS"); break;
+      case FL_LATCH: snprintf(b, sizeof b, i ? " IT RESETS SOMETHING" : " ONCE IS ENOUGH"); break;
+      default: snprintf(b, sizeof b, " IT NEEDS %d GOES", L->count); break;
+    }
+    cat(o, len, b); n++;
+  }
+  if (!n) cat(o, len, " IT DOES NOTHING");
+  cat(o, len, ".");
+}
+int fold_describe(const FoldGame *g, int c, char *o, int len) {
+  o[0] = 0;
+  if (c < 0) return 0;
+  if (g->txt[c]) { cat(o, len, g->lv->text[g->txt[c] - 1]); return 1; }
+  if (g->box[c] && !g->btn[c]) { cat(o, len, "A BOX. PUSH IT ONTO A TARGET."); return 1; }
+  int s = g->btn[c], k = g->kind[c];
+  if (s && !g->wall[c]) {                     // something that sends a signal
+    cat(o, len, k == FK_PLATE ? "A PLATE. ON WHILE A BOX IS ON IT." : k == FK_SENSOR ? "A SENSOR. ON WHILE YOU STAND ON IT." :
+               k == FK_KEY ? "A KEY. TAKING IT DOES SOMETHING." : g->target[c] ? "A TARGET. A BOX ON IT DOES SOMETHING." :
+               "A BUTTON. A BOX ON IT SWITCHES IT ON OR OFF.");
+    effect(g, s, o, len);
+    return 1;
+  }
+  if (g->wall[c]) return 0;
+  switch (k) {
+    case FK_ICE: cat(o, len, "ICE. YOU AND BOXES SLIDE ACROSS IT."); break;
+    case FK_ONEWAY: cat(o, len, "ONE WAY ONLY."); break;
+    case FK_PIT: cat(o, len, "A PIT. A BOX CAN FILL IT."); break;
+    case FK_TELE: cat(o, len, g->aux[c] & 0x80 ? "A TELEPORTER. IT IS OFF." : "A TELEPORTER. IT TAKES YOU TO ITS PARTNER."); break;
+    case FK_GATE: cat(o, len, g->aux[c] & 0x40 ? (g->aux[c] & 0x80 ? "A GAP IN THE WALL." : "A WALL. IT LOOKS ODD.") : g->aux[c] & 0x80 ? "A GATE. IT IS OPEN." : "A GATE. IT IS SHUT."); break;
+    case FK_KEY: cat(o, len, g->aux[c] & 0x80 ? "" : "A KEY. TAKE IT."); break;
+    case FK_LOCK: cat(o, len, "A LOCK. IT NEEDS A KEY."); break;
+    case FK_GRATE: cat(o, len, "A GRATE. YOU CAN CROSS IT. BOXES CAN'T."); break;
+    case FK_SENSOR: cat(o, len, "A SENSOR. IT ISN'T WIRED TO ANYTHING."); break;
+    default: if (g->target[c]) cat(o, len, "A TARGET. PUT A BOX ON IT.");
+  }
+  if (g->drv[c] && (k == FK_GATE || k == FK_TELE || k == FK_ONEWAY)) {   // and what works it
+    int drawnOpen = ((g->aux[c] & 0x80) != 0) ^ (g->sig[g->drv[c]] != 0);   // as drawn = now, unless its signal is on
+    cat(o, len, k == FK_GATE ? (drawnOpen ? " IT SHUTS WHEN " : " IT OPENS WHEN ") : k == FK_TELE ? (drawnOpen ? " IT SWITCHES OFF WHEN " : " IT SWITCHES ON WHEN ") : " IT TURNS ROUND WHEN ");
+    cond(g, g->drv[c], o, len, 0);
+    cat(o, len, ".");
+  }
+  return o[0] != 0;
+}
+
 // ---- level files -------------------------------------------------------------------------------------------------
 static int parse_act(const char *w, FoldAct *a) {
   memset(a, 0, sizeof *a);
   a->kind = w[0];
-  if (!strchr("frshg", a->kind)) return 0;
+  if (!strchr("frRshg", a->kind)) return 0;
   char *end; long i = strtol(w + 1, &end, 10);
   if (end == w + 1 || i < 0 || i >= FOLD_MAXSQ || (a->kind == 'g' && (i < 1 || i > 127))) return 0;
   a->sq = (uint8_t)i;
@@ -341,12 +491,14 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<_123456789=|:kl+", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_123456789=|:kl+*%;", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch == '*') lv->kind[c] = FK_SENSOR;
+        if (ch == '%' || ch == ';') { lv->kind[c] = FK_GATE; lv->aux[c] = (uint8_t)(0x40 | (ch == ';' ? 0x80 : 0)); }   // brick-look gate
         if (ch == '+') lv->kind[c] = FK_GRATE;
         if (ch == 'k') lv->kind[c] = FK_KEY;
         if (ch == 'l') lv->kind[c] = FK_LOCK;
         if (ch == '|' || ch == ':') { lv->kind[c] = FK_GATE; lv->aux[c] = ch == ':' ? 0x80 : 0; }   // its group: a gate line
-        if (ch == '=') { if (lv->nbtn == FOLD_MAXBTN) FAIL("line %d: too many buttons", lineno); lv->kind[c] = FK_PLATE; lv->btn[c] = (uint8_t)++lv->nbtn; }
+        if (ch == '=') { if (lv->nbtn == FOLD_MAXSIG - 1) FAIL("line %d: too many signals", lineno); lv->kind[c] = FK_PLATE; lv->btn[c] = (uint8_t)++lv->nbtn; }
         if (ch >= '1' && ch <= '9') { lv->kind[c] = FK_TELE; lv->aux[c] = (uint8_t)(ch - '0'); }
         if (ch == '_') lv->kind[c] = FK_PIT;
         if (ch == '~') lv->kind[c] = FK_ICE;
@@ -354,7 +506,7 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
         lv->wall[c] = ch == '#';
         if (strchr("xBP", ch)) lv->target[c] = 1;
         if (strchr("bBO", ch)) lv->box[c] = 1;
-        if (strchr("oO", ch)) { if (lv->nbtn == FOLD_MAXBTN) FAIL("line %d: too many buttons", lineno); lv->btn[c] = (uint8_t)++lv->nbtn; }
+        if (strchr("oO", ch)) { if (lv->nbtn == FOLD_MAXSIG - 1) FAIL("line %d: too many signals", lineno); lv->btn[c] = (uint8_t)++lv->nbtn; }
         if (strchr("pP", ch)) lv->player = c;
       }
       if (++roomRow == N) roomFace = -1;
@@ -383,12 +535,13 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
     }
     else if (!strcmp(word, "link")) {
       int b; int n = 0;
-      if (sscanf(rest, "%d %n", &b, &n) < 1 || b < 1 || b > FOLD_MAXBTN) FAIL("line %d: link <button> <moves...>", lineno);
+      if (sscanf(rest, "%d %n", &b, &n) < 1 || b < 1 || b >= FOLD_MAXSIG) FAIL("line %d: link <signal> <moves...>", lineno);
       const char *w = rest + n; char tok[16];
       while (sscanf(w, " %15s%n", tok, &n) == 1) {
         if (lv->nact[b - 1] == FOLD_MAXACT) FAIL("line %d: too many moves", lineno);
         FoldAct *a = &lv->act[b - 1][lv->nact[b - 1]++];
         if (!parse_act(tok, a) || (a->kind != 'g' && a->sq >= lv->nsq)) FAIL("line %d: bad move '%s'", lineno, tok);
+        if (a->kind == 'g') { lv->nact[b - 1]--; w += n; continue; }   // old files: gates now follow their own 'drive'
         if ((a->kind == 's' || a->kind == 'h') && !lv->geo[a->sq]) { lv->geo[a->sq] = 1; lv->geoAct[a->sq] = *a; }
         w += n;
       }
@@ -398,7 +551,38 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (sscanf(rest, "%d %c %d %d %d", &i, &side, &x, &y, &k) != 5 || i < 0 || i >= lv->nsq || x < 0 || y < 0 || x >= N || y >= N || k < 0 || k > 127) FAIL("line %d: gate <square> <f|b> <x> <y> <button>", lineno);
       int c = (2 * i + (side == 'b')) * NN + y * N + x;
       if (lv->kind[c] != FK_GATE) FAIL("line %d: no gate there", lineno);
-      lv->aux[c] = (uint8_t)((lv->aux[c] & 0x80) | k);
+      lv->drv[c] = (uint8_t)k;                 // old name for 'drive'
+    }
+    else if (!strcmp(word, "signal") || !strcmp(word, "drive") || !strcmp(word, "text")) {   // a tile's signal / text
+      int i, x, y, k = 0, n = 0; char side;
+      if (sscanf(rest, "%d %c %d %d %n", &i, &side, &x, &y, &n) < 4 || i < 0 || i >= lv->nsq || x < 0 || y < 0 || x >= N || y >= N) FAIL("line %d: %s <square> <f|b> <x> <y> ...", lineno, word);
+      int c = (2 * i + (side == 'b')) * NN + y * N + x;
+      if (word[0] == 't') {
+        if (lv->ntext == FOLD_MAXTEXT) FAIL("line %d: too many texts", lineno);
+        strncpy(lv->text[lv->ntext], rest + n, FOLD_TEXTLEN - 1); lv->txt[c] = (uint8_t)++lv->ntext;
+      } else {
+        if (sscanf(rest + n, "%d", &k) != 1 || k < 0 || k >= FOLD_MAXSIG) FAIL("line %d: signal 0..63", lineno);
+        if (word[0] == 's') lv->btn[c] = (uint8_t)k; else lv->drv[c] = (uint8_t)k;
+      }
+    }
+    else if (!strcmp(word, "input")) {           // a level-wide input
+      int k; char what[16];
+      if (sscanf(rest, "%d %15s", &k, what) != 2 || k < 1 || k >= FOLD_MAXSIG || strcmp(what, "alltargets")) FAIL("line %d: input <signal> alltargets", lineno);
+      lv->allSig = k;
+    }
+    else if (!strcmp(word, "logic")) {           // logic <out> <and|or|xor|not|latch|count [n]> <in...>
+      if (lv->nlogic == FOLD_MAXLOGIC) FAIL("line %d: too many logic pieces", lineno);
+      FoldLogic *L = &lv->logic[lv->nlogic]; memset(L, 0, sizeof *L);
+      char op[8]; int out, n = 0;
+      if (sscanf(rest, "%d %7s %n", &out, op, &n) < 2 || out < 1 || out >= FOLD_MAXSIG) FAIL("line %d: logic <out> <op> <in...>", lineno);
+      static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count" };
+      L->op = 255; for (int k = 0; k < 6; k++) if (!strcmp(op, OPS[k])) L->op = (uint8_t)k;
+      if (L->op == 255) FAIL("line %d: logic op is and / or / xor / not / latch / count", lineno);
+      const char *w = rest + n; int v, m;
+      if (L->op == FL_COUNT) { if (sscanf(w, "%d %n", &v, &m) < 1 || v < 1 || v > 255) FAIL("line %d: count <n> <in>", lineno); L->count = (uint8_t)v; w += m; }
+      while (L->n < 4 && sscanf(w, "%d%n", &v, &m) == 1) { if (v < 1 || v >= FOLD_MAXSIG) FAIL("line %d: signal 1..63", lineno); L->in[L->n++] = (uint8_t)v; w += m; }
+      if (!L->n) FAIL("line %d: logic needs inputs", lineno);
+      L->out = (uint8_t)out; lv->nlogic++;
     }
     else if (!strcmp(word, "box") || !strcmp(word, "player")) {   // a box / the player on any tile
       int i, x, y; char side;

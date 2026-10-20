@@ -40,3 +40,22 @@ r (in its own frame) or o i (out / in along its normal); `h<i>:<e><+|->` hinge s
 (0 top, 1 right, 2 bottom, 3 left) towards its front (+) or back (-); `g<k>` open / close the gates of group k.
 Shifts and hinges toggle: the next press puts
 the square back. A square has at most one shift or hinge. No move may leave two squares in the same place.
+
+## Signals and logic
+
+Inputs send signals (1-63); logic combines them; outputs follow them. Buttons and plates number their signals in room
+order, and these lines set or add the rest:
+
+```
+signal <sq> <f|b> <x> <y> <k>     the tile sends signal k: a button (flips each time a box lands on it), plate (on while
+                                  a box is on it), sensor `*` (on while you stand on it), target (on while a box is on
+                                  it), key (on once taken)
+drive <sq> <f|b> <x> <y> <k>      signal k works the tile: a gate (`|` `:`, or `%` `;` that look like brick wall) opens /
+                                  shuts, a teleporter switches on / off, a one-way turns round. Its state is as drawn,
+                                  switched while k is on.
+input <k> alltargets              k is on while every target has a box
+logic <out> and|or|xor <in...>    up to 4 inputs; not <in>; latch <set> [<reset>]; count <n> <in> (on after n switch-ons)
+link <k> <moves...>               k's cell moves: each change flips / shifts / hinges (back and forth) or turns a quarter
+                                  (r); R turns while k is on and back while it's off
+text <sq> <f|b> <x> <y> <words>   what the tile says when you talk to it (otherwise it's worked out from the wiring)
+```
