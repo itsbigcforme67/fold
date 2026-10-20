@@ -7,19 +7,27 @@
 uint32_t gfx_px[GW * GH];
 static float zbuf[GW * GH];
 static Mat4 VP;
+static uint32_t fogC; static float fogS = 1e9f, fogE = 2e9f;
+static uint8_t smask[GW * GH];
+static uint32_t mix(uint32_t a, uint32_t b, float t) {   // a towards b by t
+  if (t <= 0) return a; if (t >= 1) return b;
+  int r = (int)(((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t), g = (int)(((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t), bl = (int)((a & 255) * (1 - t) + (b & 255) * t);
+  return (uint32_t)(r << 16 | g << 8 | bl);
+}
+static uint32_t fogged(uint32_t c, float z) { return z <= fogS ? c : mix(c, fogC, (z - fogS) / (fogE - fogS) * 0.85f); }
 
 static const char *FONT[128];
 static void font_init(void) {
   static int done; if (done) return; done = 1;
   static const struct { char c; const char *b; } F[] = {
-    {'A',"010101111101101"},{'B',"110101110101110"},{'C',"011100100100011"},{'D',"110101101101110"},{'E',"111100110100111"},
+    {'A',".###.#...##...#######...##...##...#"},{'B',"110101110101110"},{'C',"011100100100011"},{'D',"110101101101110"},{'E',"111100110100111"},
     {'F',"111100110100100"},{'G',"011100101101011"},{'H',"101101111101101"},{'I',"111010010010111"},{'J',"001001001101010"},
     {'K',"101101110101101"},{'L',"100100100100111"},{'M',"101111111101101"},{'N',"110101101101101"},{'O',"010101101101010"},
     {'P',"110101110100100"},{'Q',"010101101110011"},{'R',"110101110101101"},{'S',"011100010001110"},{'T',"111010010010010"},
-    {'U',"101101101101111"},{'V',"101101101101010"},{'W',"101101111111101"},{'X',"101101010101101"},{'Y',"101101010010010"},
-    {'Z',"111001010100111"},{'0',"111101101101111"},{'1',"010110010010111"},{'2',"110001010100111"},{'3',"110001010001110"},
+    {'U',"101101101101111"},{'V',"101101101101010"},{'W',"#...##...##...##.#.##.#.##.#.#.#.#."},{'X',"101101010101101"},{'Y',"101101010010010"},
+    {'Z',"111001010100111"},{'0',"111101101101111"},{'1',"010110010010111"},{'2',"110001010100111"},{'3',"#####...#...#.....#.....##...#.###."},
     {'4',"101101111001001"},{'5',"111100110001110"},{'6',"011100111101111"},{'7',"111001010010010"},{'8',"111101111101111"},
-    {'9',"111101111001110"},{'!',"010010010000010"},{':',"000010000010000"},{'-',"000000111000000"},{'.',"000000000000010"},
+    {'9',"111101111001110"},{'!',"010010010000010"},{':',"000010000010000"},{'-',"...............#####..............."},{'.',"000000000000010"},
     {'/',"001001010100100"},{'+',"000010111010000"},{'>',"100010001010100"},{'<',"001010100010001"},{'?',"110001010000010"},
     {'(',"010100100100010"},{')',"010001001001010"},{'=',"000111000111000"},{',',"000000000010100"},{'#',"101111101111101"},
     {' ',"000000000000000"} };
@@ -28,6 +36,87 @@ static void font_init(void) {
 
 const char *gfx_glyph(int ch) { font_init(); if (ch >= 'a' && ch <= 'z') ch -= 32; return ch > 0 && ch < 128 && FONT[ch] ? FONT[ch] : FONT[' ']; }
 void gfx_clear(uint32_t c) { for (int i = 0; i < GW * GH; i++) gfx_px[i] = c; }
+void gfx_gradient(uint32_t top, uint32_t bottom) {
+  for (int y = 0; y < GH; y++) {
+    uint32_t row = mix(top, bottom, (float)y / GH);
+    for (int x = 0; x < GW; x++) {
+      float dx = (x - GW / 2) / (float)(GW / 2), dy = (y - GH / 2) / (float)(GH / 2), v = (dx * dx + dy * dy) * 0.35f;
+      gfx_px[y * GW + x] = mix(row, 0x000000, v > 0.6f ? 0.6f : v);
+    }
+  }
+}
+void gfx_dim(int x, int y, int w, int h, float k) {
+  for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) for (int i = x < 0 ? 0 : x; i < x + w && i < GW; i++) gfx_px[j * GW + i] = mix(gfx_px[j * GW + i], 0, k);
+}
+
+// ---- a 5x7 font for the interface -------------------------------------------------------------------------------
+static const char *F5[128];
+static void f5_init(void) {
+  static int done; if (done) return; done = 1;
+  static const struct { char c; const char *r; } T[] = {   // 7 rows of 5, '#' = on
+    {'A',".###.#...##...#######...##...##...#"},{'B',"####.#...##...#####.#...##...#####."},{'C',".###.#...##....#....#....#...#.###."},
+    {'D',"###..#..#.#...##...##...##..#.###.."},{'E',"######....#....####.#....#....#####"},{'F',"######....#....####.#....#....#...."},
+    {'G',".###.#...##....#.####...##...#.####"},{'H',"#...##...##...#######...##...##...#"},{'I',".###...#....#....#....#....#...###."},
+    {'J',"..###...#....#....#....#.#..#..##.."},{'K',"#...##..#.#.#..##...#.#..#..#.#...#"},{'L',"#....#....#....#....#....#....#####"},
+    {'M',"#...###.###.#.##.#.##...##...##...#"},{'N',"#...##...###..##.#.##..###...##...#"},{'O',".###.#...##...##...##...##...#.###."},
+    {'P',"####.#...##...#####.#....#....#...."},{'Q',".###.#...##...##...##.#.##..#..##.#"},{'R',"####.#...##...#####.#.#..#..#.#...#"},
+    {'S',".####.....#.....###.....#....#####."},{'T',"#####..#....#....#....#....#....#.."},{'U',"#...##...##...##...##...##...#.###."},
+    {'V',"#...##...##...##...##...#.#.#...#.."},{'W',"#...##...##...##.#.##.#.##.#.#.#.#."},{'X',"#...##...#.#.#...#...#.#.#...##...#"},
+    {'Y',"#...##...#.#.#...#....#....#....#.."},{'Z',"#####....#...#...#...#...#....#####"},
+    {'0',".###.#...##..###.#.###..##...#.###."},{'1',"..#...##....#....#....#....#...###."},{'2',".###.#...#....#...#...#...#...#####"},
+    {'3',"#####...#...#.....#.....##...#.###."},{'4',"...#...##..#.#.#..#.#####...#....#."},{'5',"######....####.....#....##...#.###."},
+    {'6',"..##..#...#....####.#...##...#.###."},{'7',"#####....#...#...#...#....#....#..."},{'8',".###.#...##...#.###.#...##...#.###."},
+    {'9',".###.#...##...#.####....#...#..##.."},{'.',"..........................##...##.."},{',',".....................##...##...#..."},
+    {':',".....##...##.........##...##......."},{'!',"..#....#....#....#....#.........#.."},{'?',".###.#...#....#...#...#.........#.."},
+    {'-',"...............#####..............."},{'+',"..........#....#..#####..#....#...."},{'/',"....#....#...#...#...#...#....#...."},
+    {'(',"...#...#...#....#....#.....#.....#."},{')',".#.....#.....#....#....#...#...#..."},{'=',"..........#####.....#####.........."},
+    {'\'',"..#....#...#......................."},{'>',".#.....#.....#.....#...#...#...#..."},{'<',"...#...#...#...#.....#.....#.....#."},
+    {'#',".#.#..#.#.#####.#.#.#####.#.#..#.#."},{'%',"##...##..#...#...#...#...#..##...##"},{'*',"......#..#.#.#.###.#.#.#..#........"},
+    {' ',"..................................."} };
+  for (unsigned i = 0; i < sizeof T / sizeof T[0]; i++) F5[(int)T[i].c] = T[i].r;
+}
+int gfx_text5_w(int scale, const char *s) { return (int)strlen(s) * 6 * scale - scale; }
+void gfx_text5(int x, int y, int scale, uint32_t c, const char *s) {
+  f5_init();
+  for (; *s; s++, x += 6 * scale) {
+    int ch = *s >= 'a' && *s <= 'z' ? *s - 32 : *s;
+    const char *g = ch > 0 && ch < 128 && F5[ch] ? F5[ch] : F5[' '];
+    int n = (int)strlen(g);
+    for (int i = 0; i < 35 && i < n; i++) if (g[i] == '#') gfx_rect(x + (i % 5) * scale, y + (i / 5) * scale, scale, scale, c);
+  }
+}
+static void round_rect(int x, int y, int w, int h, int r, uint32_t c) {
+  for (int j = 0; j < h; j++) {
+    int in = 0;
+    if (j < r) in = r - (int)sqrtf((float)(r * r - (r - j) * (r - j)));
+    else if (j >= h - r) in = r - (int)sqrtf((float)(r * r - (j - (h - r - 1)) * (j - (h - r - 1))));
+    gfx_rect(x + in, y + j, w - 2 * in, 1, c);
+  }
+}
+void gfx_panel(int x, int y, int w, int h, const char *title, uint32_t accent) {
+  gfx_dim(x + 6, y + 8, w, h, 0.45f);                              // its shadow
+  round_rect(x - 1, y - 1, w + 2, h + 2, 9, mix(accent, 0x000000, 0.45f));
+  round_rect(x, y, w, h, 8, 0x0e130d);
+  if (title) {
+    round_rect(x, y, w, 30, 8, mix(accent, 0x0e130d, 0.72f)); gfx_rect(x, y + 22, w, 8, mix(accent, 0x0e130d, 0.72f));
+    gfx_rect(x, y + 30, w, 1, mix(accent, 0x000000, 0.2f));
+    gfx_text5(x + 14, y + 8, 2, accent, title);
+  }
+}
+int gfx_badge(int x, int y, const char *label) {   // Duke-style colours: A green, B red, X blue, Y yellow
+  uint32_t c = 0x5a6458, t = 0xffffff;
+  if (!strcmp(label, "A")) c = 0x2fa84a; else if (!strcmp(label, "B")) c = 0xd0383a; else if (!strcmp(label, "X")) c = 0x3a6fd0;
+  else if (!strcmp(label, "Y")) { c = 0xe8c830; t = 0x201c08; }
+  int w = strlen(label) == 1 ? 18 : gfx_text5_w(1, label) + 12;
+  round_rect(x, y, w, 18, 9, c);
+  gfx_text5(x + w / 2 - gfx_text5_w(1, label) / 2, y + 6, 1, t, label);
+  return w;
+}
+int gfx_hint(int x, int y, const char *label, const char *what) {
+  int w = gfx_badge(x, y, label) + 6;
+  gfx_text5(x + w, y + 5, 1, 0xc8d4c2, what);
+  return w + gfx_text5_w(1, what) + 16;
+}
 void gfx_rect(int x, int y, int w, int h, uint32_t c) {
   for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) for (int i = x < 0 ? 0 : x; i < x + w && i < GW; i++) gfx_px[j * GW + i] = c;
 }
@@ -106,6 +195,7 @@ static uint32_t shade_c(uint32_t c, float k) {
   int r = (int)(((c >> 16) & 255) * k), g = (int)(((c >> 8) & 255) * k), b = (int)((c & 255) * k);
   return (uint32_t)((r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b));
 }
+static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 2 shadow mask
 static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t colour, float shade) {
   float X[3], Y[3], IW[3], UW[3], VW[3], Z[3];
   const CV *v[3] = { a, b, c };
@@ -128,7 +218,9 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
     if (w0 < 0 || w1 < 0 || w2 < 0) continue;
     float iw = w0 * IW[0] + w1 * IW[1] + w2 * IW[2], z = 1.0f / iw;
     int k = y * GW + x;
+    if (triMode == 2) { smask[k] = 1; continue; }
     if (z >= zbuf[k]) continue;
+    if (triMode == 1) { gfx_px[k] = mix(gfx_px[k], fogged(flat, z), triAlpha); continue; }
     uint32_t col = flat;
     if (t) {
       float u = (w0 * UW[0] + w1 * UW[1] + w2 * UW[2]) * z, vv = (w0 * VW[0] + w1 * VW[1] + w2 * VW[2]) * z;
@@ -136,7 +228,7 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
       if (tx < 0) tx = 0; if (ty < 0) ty = 0; if (tx >= t->w) tx = t->w - 1; if (ty >= t->h) ty = t->h - 1;
       col = shade_c(t->px[ty * t->w + tx], shade);
     }
-    zbuf[k] = z; gfx_px[k] = col;
+    zbuf[k] = z; gfx_px[k] = fogged(col, z);
   }
 }
 void gfx_quad(const Vec3 p[4], const Tex *t, uint32_t colour, float shade) {
@@ -158,6 +250,16 @@ void gfx_quad(const Vec3 p[4], const Tex *t, uint32_t colour, float shade) {
   }
   for (int i = 1; i + 1 < n; i++) tri(&out[0], &out[i], &out[i + 1], t, colour, shade);
 }
+void gfx_quad_alpha(const Vec3 p[4], uint32_t colour, float alpha) { triMode = 1; triAlpha = alpha; gfx_quad(p, NULL, colour, 1); triMode = 0; }
+void gfx_shadow_begin(void) { memset(smask, 0, sizeof smask); }
+void gfx_shadow_quad(const Vec3 p[4]) { triMode = 2; gfx_quad(p, NULL, 0, 1); triMode = 0; }
+void gfx_shadow_end(float k) {                  // a soft edge: blur the mask a little while darkening
+  for (int y = 1; y < GH - 1; y++) for (int x = 1; x < GW - 1; x++) {
+    int i = y * GW + x, n = smask[i] * 4 + smask[i - 1] + smask[i + 1] + smask[i - GW] + smask[i + GW];
+    if (n) gfx_px[i] = mix(gfx_px[i], 0x000000, k * n / 8.0f);
+  }
+}
+void gfx_fog(uint32_t c, float start, float end) { fogC = c; fogS = start; fogE = end; }
 void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick) {
   // a line with depth: drawn where it is in front of (or within a small bias of) what is already there
   V4 A = xform(a), B = xform(b);
@@ -176,7 +278,7 @@ void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick) {
       int xi = (int)x + dx - thick / 2, yi = (int)y + dy - thick / 2;
       if (xi < 0 || yi < 0 || xi >= GW || yi >= GH) continue;
       int q = yi * GW + xi;
-      if (z <= zbuf[q] * 1.002f + 0.002f) gfx_px[q] = c;
+      if (z <= zbuf[q] * 1.002f + 0.002f) gfx_px[q] = fogged(c, z);
     }
   }
 }

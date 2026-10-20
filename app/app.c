@@ -779,8 +779,40 @@ static void strips(int i) {
     gfx_line3(pa, pb, C_EDGE, 1); gfx_line3(qa, qb, C_EDGE, 1);
   }
 }
+// the ground the shape stands on: below its lowest point
+static float ground_z(void) {
+  float z = (float)co[2];
+  for (int i = 0; i < L.nsq; i++) { const FoldSquare *q = &L.sq[i]; for (int k = 0; k < 4; k++) { float c = q->o[2] + ((k == 1 || k == 2) ? q->u[2] : 0) + (k >= 2 ? q->v[2] : 0); if (c < z) z = c; } }
+  return z - 0.02f;
+}
+static void draw_ground(void) {               // a soft grid fading into the distance, and the shape's shadow on it
+  float zg = ground_z(); int cx = (int)floorf(look.x), cy = (int)floorf(look.y);
+  for (int a = -8; a <= 8; a++) for (int b = -8; b < 8; b++) {   // cell by cell, fading with distance from the cursor
+    float d = sqrtf((float)(a * a + (b + 0.5f) * (b + 0.5f))) / 8.0f; if (d >= 1) continue;
+    float k = (1 - d) * (1 - d); int major = (cx + a) % 4 == 0;
+    uint32_t c = ((int)(0x10 + (major ? 0x16 : 0x0a) * k) << 16) | ((int)(0x18 + (major ? 0x2a : 0x16) * k) << 8) | (int)(0x10 + (major ? 0x12 : 0x08) * k);
+    gfx_line3(v3f((float)(cx + a), (float)(cy + b), zg), v3f((float)(cx + a), (float)(cy + b + 1), zg), c, 1);
+    major = (cy + a) % 4 == 0;
+    c = ((int)(0x10 + (major ? 0x16 : 0x0a) * k) << 16) | ((int)(0x18 + (major ? 0x2a : 0x16) * k) << 8) | (int)(0x10 + (major ? 0x12 : 0x08) * k);
+    gfx_line3(v3f((float)(cx + b), (float)(cy + a), zg), v3f((float)(cx + b + 1), (float)(cy + a), zg), c, 1);
+  }
+  const float lx = 0.38f, ly = 0.52f, lz = 0.76f;   // the same light as the shading
+  gfx_shadow_begin();
+  for (int i = 0; i < L.nsq; i++) {
+    const FoldSquare *q = &L.sq[i]; Vec3 P[4];
+    for (int k = 0; k < 4; k++) {
+      float x = q->o[0] + ((k == 1 || k == 2) ? q->u[0] : 0) + (k >= 2 ? q->v[0] : 0), y = q->o[1] + ((k == 1 || k == 2) ? q->u[1] : 0) + (k >= 2 ? q->v[1] : 0);
+      float z = q->o[2] + ((k == 1 || k == 2) ? q->u[2] : 0) + (k >= 2 ? q->v[2] : 0), t = (z - zg) / lz;
+      P[k] = v3f(x - lx * t, y - ly * t, zg);
+    }
+    gfx_shadow_quad(P);
+  }
+  gfx_shadow_end(0.55f);
+}
 static void draw_shape(void) {
   gfx_zclear(); tex_init();
+  gfx_fog(0x070b06, dist * 0.9f, dist * 3.2f);
+  draw_ground();
   static uint32_t back[8 * 8]; static int init;
   if (!init) { init = 1; for (int i = 0; i < 64; i++) back[i] = ((i % 8) + (i / 8)) & 1 ? 0x24301f : 0x141a12; }
   Tex backTex = { 8, 8, back };
@@ -817,93 +849,174 @@ static void draw_shape(void) {
       if (gfx_project(c, &sx, &sy)) { char m[4] = { (char)(func[i].kind - 32), 0 }; gfx_rect((int)sx - 6, (int)sy - 6, 13, 13, 0x000000); gfx_text((int)sx - 4, (int)sy - 4, 2, 0xffd040, m); }
     }
   }
-  // the working plane's grid round the cursor, and the cursor
+  // the working plane near the cursor (a small patch, so it never streaks off at a low angle), and the cursor
   Vec3 o = v3f(co[0], co[1], co[2]), a = v3f(ce1[0], ce1[1], ce1[2]), b = v3f(ce2[0], ce2[1], ce2[2]);
-  const int R = 4;
-  for (int k = -R; k <= R + 1; k++) {
-    Vec3 p0 = v3f(o.x + a.x * k - b.x * R, o.y + a.y * k - b.y * R, o.z + a.z * k - b.z * R), p1 = v3f(p0.x + b.x * (2 * R + 1), p0.y + b.y * (2 * R + 1), p0.z + b.z * (2 * R + 1));
-    Vec3 q0 = v3f(o.x + b.x * k - a.x * R, o.y + b.y * k - a.y * R, o.z + b.z * k - a.z * R), q1 = v3f(q0.x + a.x * (2 * R + 1), q0.y + a.y * (2 * R + 1), q0.z + a.z * (2 * R + 1));
-    gfx_line3(p0, p1, C_GRID, 1); gfx_line3(q0, q1, C_GRID, 1);
+  const int R = 2;
+  for (int i = -R; i <= R + 1; i++) for (int j = -R; j <= R; j++) {   // edge by edge, fading out from the cursor
+    float d = sqrtf((i - 0.5f) * (i - 0.5f) + j * j) / (R + 1.2f); if (d >= 1) continue;
+    float k = 1 - d; uint32_t c = ((int)(0x0e + 0x22 * k) << 16) | ((int)(0x16 + 0x48 * k) << 8) | (int)(0x0e + 0x1c * k);
+    Vec3 p0 = vadd(o, vadd(vsc(a, (float)i), vsc(b, (float)j))), q0 = vadd(o, vadd(vsc(b, (float)i), vsc(a, (float)j)));
+    gfx_line3(p0, vadd(p0, b), c, 1); gfx_line3(q0, vadd(q0, a), c, 1);
   }
-  Vec3 C[4] = { o, v3f(o.x + a.x, o.y + a.y, o.z + a.z), v3f(o.x + a.x + b.x, o.y + a.y + b.y, o.z + a.z + b.z), v3f(o.x + b.x, o.y + b.y, o.z + b.z) };
-  uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
-  for (int k = 0; k < 4; k++) { float x0, y0, x1, y1; if (gfx_project(C[k], &x0, &y0) && gfx_project(C[(k + 1) & 3], &x1, &y1)) for (int w = -1; w <= 1; w++) { gfx_line((int)x0 + w, (int)y0, (int)x1 + w, (int)y1, cc); gfx_line((int)x0, (int)y0 + w, (int)x1, (int)y1 + w, cc); } }
+  Vec3 C[4] = { o, vadd(o, a), vadd(vadd(o, a), b), vadd(o, b) };
+  int here = find_sq(co, ce1, ce2);
+  float pulse = 0.5f + 0.5f * sinf(t * 0.2f);
+  if (here < 0) gfx_quad_alpha(C, 0x7dff3a, 0.12f + 0.1f * pulse);        // where a cell would go: a faint ghost
+  uint32_t cc = here < 0 ? 0xd8ff9c : 0xffd060;                             // amber over a cell that is there
+  for (int k = 0; k < 4; k++) {                                             // glowing corner brackets
+    Vec3 c0 = C[k], toN = vadd(C[(k + 1) & 3], vsc(c0, -1)), toP = vadd(C[(k + 3) & 3], vsc(c0, -1));
+    float x0, y0, x1, y1, x2, y2;
+    if (!gfx_project(c0, &x0, &y0) || !gfx_project(vadd(c0, vsc(toN, 0.3f)), &x1, &y1) || !gfx_project(vadd(c0, vsc(toP, 0.3f)), &x2, &y2)) continue;
+    for (int w = -1; w <= 1; w++) for (int h = -1; h <= 1; h++) {
+      gfx_line((int)x0 + w, (int)y0 + h, (int)x1 + w, (int)y1 + h, w || h ? 0x3f7f2c : cc);
+      gfx_line((int)x0 + w, (int)y0 + h, (int)x2 + w, (int)y2 + h, w || h ? 0x3f7f2c : cc);
+    }
+  }
+  for (int k = 0; k < 4; k++) gfx_line3(C[k], C[(k + 1) & 3], pulse > 0.5f ? cc : 0x6fb050, 1);
 }
-static void draw_vmx(int x, int y, int scale, const uint8_t *b) {   // the VMX window: a body with its 64x64 screen
-  int w = 64 * scale;
+// the VMX window: the owner's render of the VMX (assets/vmx_small / vmx_large) with the 64x64 screen in it
+typedef struct { int w, h, sx, sy; uint8_t *px; } Frame;
+static Frame frames[2]; static int framesTried;
+static void load_frames(void) {
+  framesTried = 1;
+  const char *names[2] = { "assets/vmx_small.rgba", "assets/vmx_large.rgba" };
+  for (int k = 0; k < 2; k++) {
+    FILE *f = fopen(names[k], "rb"); if (!f) continue;
+    unsigned char hd[12];
+    if (fread(hd, 1, 12, f) == 12 && !memcmp(hd, "VMXF", 4)) {
+      Frame *F = &frames[k]; F->w = hd[4] | hd[5] << 8; F->h = hd[6] | hd[7] << 8; F->sx = hd[8] | hd[9] << 8; F->sy = hd[10] | hd[11] << 8;
+      F->px = malloc((size_t)F->w * F->h * 4);
+      if (F->px && fread(F->px, 4, (size_t)F->w * F->h, f) != (size_t)F->w * F->h) { free(F->px); F->px = NULL; }
+    }
+    fclose(f);
+  }
+}
+// draws the VMX with its screen's top-left at (x, y); scale 2 uses the small frame, 3 the large; returns its width
+static int draw_vmx(int x, int y, int scale, const uint8_t *b) {
+  if (!framesTried) load_frames();
+  Frame *F = &frames[scale >= 3 ? 1 : 0];
+  static uint32_t col[64 * 64]; vmx_colours(b, col, VMX_LIT, VMX_DARK);
+  Tex tx = { 64, 64, col };
+  if (F->px && scale == (scale >= 3 ? 3 : 2)) {
+    int ox = x - F->sx, oy = y - F->sy;
+    for (int j = 0; j < F->h; j++) for (int i = 0; i < F->w; i++) {
+      int X = ox + i, Y = oy + j; if (X < 0 || Y < 0 || X >= GW || Y >= GH) continue;
+      const uint8_t *q = F->px + 4 * (j * F->w + i); unsigned a = q[3]; if (!a) continue;
+      uint32_t d = gfx_px[Y * GW + X];
+      unsigned r = (q[0] * a + ((d >> 16) & 255) * (255 - a)) / 255, g = (q[1] * a + ((d >> 8) & 255) * (255 - a)) / 255, bl = (q[2] * a + (d & 255) * (255 - a)) / 255;
+      gfx_px[Y * GW + X] = r << 16 | g << 8 | bl;
+    }
+    gfx_blit(x, y, scale, &tx);
+    return F->w;
+  }
+  int w = 64 * scale;                          // no render: a plain body
   gfx_rect(x - 14, y - 14, w + 28, w + 46, 0x2a2d2a); gfx_frame(x - 14, y - 14, w + 28, w + 46, 0x4a4f48);
   gfx_rect(x - 3, y - 3, w + 6, w + 6, 0x000000);
-  static uint32_t col[64 * 64]; vmx_colours(b, col, VMX_LIT, VMX_DARK);
-  Tex tx = { 64, 64, col }; gfx_blit(x, y, scale, &tx);
+  gfx_blit(x, y, scale, &tx);
   gfx_text(x + w / 2 - gfx_text_w(2, "VMX") / 2, y + w + 12, 2, 0x8c9787, "VMX");
+  return w + 28;
+}
+static uint32_t item_colour(int k) {          // a palette icon's colour (the tile's colour in 3D)
+  switch (k) { case 0: case 16: return 0x7dff3a; case 2: return 0xe0c070; case 5: return 0xf2f6ff; case 6: return 0xbfefff; case 7: return 0xffd040;
+               case 8: return 0x8a9a86; case 9: return 0xe070ff; case 10: return 0xff9a3c; case 11: return 0x9fb4c8; case 12: case 13: return 0xffc83c;
+               case 14: return 0xa0a8a0; case 17: return 0xfff27a; }
+  return 0x7dff3a;
 }
 static void draw_room_editor(void) {
   memset(bits, 0, sizeof bits);
   vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, rf, rrot, L.player, &S, 0);
-  const int S7 = 7, X0 = 24, Y0 = 56;          // the room 7x bigger: a cell is 49 px
-  for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S7, Y0 + y * S7, S7, S7, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
-  uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
-  for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 49 - w, Y0 + ry * 49 - w, 49 + 2 * w, 49 + 2 * w, cc);
+  const int S6 = 6, X0 = 30, Y0 = 62;          // the room 6x bigger: a cell is 42 px
   char s[64];
-  snprintf(s, sizeof s, "CELL %d %s", rf >> 1, rf & 1 ? "BACK" : "FRONT"); gfx_text(X0, 30, 2, C_TEXT, s);
-  int px0 = 440;
-  gfx_text(px0, 56, 2, C_DIM, "TILES  L/R");
-  for (int k = 0; k < NITEMS; k++) gfx_text(px0, 80 + k * 18, 2, k == item ? C_HI : C_TEXT, ITEMS[k]);
-  int hy = 92 + NITEMS * 18;
-  gfx_text(px0, hy, 2, C_DIM, "A PLACE"); gfx_text(px0, hy + 18, 2, C_DIM, "B FLOOR");
-  gfx_text(px0, hy + 36, 2, C_DIM, "DPAD NEXT CELL"); gfx_text(px0, hy + 54, 2, C_DIM, "Y CELL"); gfx_text(px0, hy + 72, 2, C_DIM, "X LEVEL");
+  snprintf(s, sizeof s, "CELL %d  %s SIDE", rf >> 1, rf & 1 ? "BACK" : "FRONT");
+  gfx_panel(X0 - 12, Y0 - 40, 56 * S6 + 24, 56 * S6 + 52, s, C_HI);
+  for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S6, Y0 + y * S6, S6, S6, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
+  uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
+  for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 42 - w, Y0 + ry * 42 - w, 42 + 2 * w, 42 + 2 * w, cc);
+  // the tile palette: icons in a grid, the picked one lit up and named
+  int px0 = 410, py0 = 22, cols = 4;
+  gfx_panel(px0, py0, 216, 300, "TILES", C_HI);
+  for (int k = 0; k < NITEMS; k++) {
+    int bx = px0 + 14 + (k % cols) * 48, by = py0 + 44 + (k / cols) * 46;
+    if (k == item) { gfx_rect(bx - 4, by - 4, 44, 44, 0x2f5a24); gfx_frame(bx - 4, by - 4, 44, 44, C_HI); }
+    const char **spr = vmx_icon(ITEMS[k]); uint32_t ic = item_colour(k);
+    gfx_rect(bx, by, 36, 36, 0x0a120a);
+    for (int j = 0; j < 7; j++) for (int i2 = 0; i2 < 7; i2++) if (spr[j][i2] == '#') gfx_rect(bx + 1 + i2 * 5, by + 1 + j * 5, 5, 5, ic);
+  }
+  gfx_text5(px0 + 14, py0 + 270, 2, C_HI, ITEMS[item]);
+  gfx_hint(px0 + 4, py0 + 312, "L", ""); gfx_hint(px0 + 34, py0 + 312, "R", "PICK A TILE");
+}
+static void top_bar(const char *mode) {
+  gfx_dim(0, 0, GW, 30, 0.55f); gfx_rect(0, 30, GW, 1, 0x2f5a24);
+  gfx_text5(12, 8, 2, C_HI, "FOLD");
+  gfx_text5(70, 10, 1, C_DIM, L.name);
+  int w = gfx_text5_w(1, mode) + 16; gfx_rect(GW - w - 10, 7, w, 16, 0x2f5a24); gfx_text5(GW - w - 2, 12, 1, 0xe8ffd8, mode);
+}
+static void hints(const char **pairs, int n) {   // the bottom bar: badges and what they do
+  gfx_dim(0, GH - 30, GW, 30, 0.6f); gfx_rect(0, GH - 31, GW, 1, 0x2f5a24);
+  int x = 10;
+  for (int k = 0; k < n; k++) x += gfx_hint(x, GH - 24, pairs[2 * k], pairs[2 * k + 1]);
+}
+static void row(int x, int y, int w, int sel, const char *s) {
+  if (sel) { gfx_rect(x - 6, y - 5, w, 20, 0x23421b); gfx_rect(x - 6, y - 5, 3, 20, C_HI); }
+  gfx_text5(x, y, 1, sel ? 0xe8ffd8 : C_TEXT, s);
 }
 void app_draw(void) {
-  gfx_clear(C_BG);
-  char s[96];
+  char s[160];
+  gfx_gradient(0x142012, 0x040604);
   if (mode == M_PLAY) {
     static uint8_t b[64 * 64];
     vmx_game(b, &G, 1, popT ? popWord : NULL);
     if (talkOn) vmx_talk(b, talk, talkPage);
     if (wonT) { for (int y = 24; y < 40; y++) for (int x = 6; x < 58; x++) b[y * 64 + x] = 0; vmx_text(b, 20, 26, "CLEAR!"); snprintf(s, sizeof s, "%d MOVES", G.moves); vmx_text(b, 32 - 2 * (int)strlen(s) + 1, 33, s); }
-    draw_vmx(GW / 2 - 160, 52, 5, b);
-    gfx_text(20, 20, 2, C_TEXT, "PLAYTEST  MOVE  A TALK  B UNDO (HOLD: RESTART)  START BACK");
+    draw_vmx(GW / 2 - 96, 130, 3, b);
+    top_bar("PLAYTEST");
+    const char *h[] = { "DPAD", "MOVE", "A", "TALK", "B", "UNDO", "HOLD B", "RESTART", "START", "BACK" };
+    hints(h, 5);
     return;
   }
-  if (mode == M_ROOM || mode == M_TILE || (mode == M_PROPS && propsBack == M_ROOM)) draw_room_editor();
-  else {
+  int roomish = mode == M_ROOM || mode == M_TILE || (mode == M_PROPS && propsBack == M_ROOM);
+  if (roomish) {
+    draw_room_editor();
+    top_bar("CELL EDITOR");
+    const char *h[] = { "STICK", "MOVE", "A", "PLACE", "B", "FLOOR", "DPAD", "NEXT CELL", "Y", "SETTINGS", "X", "LEVEL" };
+    if (mode == M_ROOM) hints(h, 6);
+  } else {
     draw_shape();
-    gfx_text(16, 14, 2, C_TEXT, "LEVEL   STICK MOVE  A PLACE CELL  B REMOVE  DPAD FOLD  L/R TURN");
-    gfx_text(16, 32, 2, C_DIM, "X EDIT CELL   Y CELL SETTINGS   START MENU");
-    snprintf(s, sizeof s, "%s   %d CELLS", L.name, L.nsq); gfx_text(16, GH - 22, 2, C_DIM, s);
-    if (vmxWin) {                             // the VMX window: the room under the cursor, as on the handheld
+    top_bar("LEVEL");
+    snprintf(s, sizeof s, "%d CELLS", L.nsq); gfx_text5(12, 40, 1, C_DIM, s);
+    if (vmxWin) {                             // the VMX window: the cell under the cursor, as on the handheld
       static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
       int i = find_sq(co, ce1, ce2);
       if (i >= 0) { int f = sq_face_toward_eye(i); if (sides[i] >> (f & 1) & 1) vmx_room(b, L.wall, L.target, L.box, L.btn, L.kind, L.aux, f, 0, L.player, &S, 0); else vmx_text(b, 12, 28, "NO ROOM"); }
       else vmx_text(b, 4, 28, "EMPTY SPACE");
-      draw_vmx(GW - 64 * 2 - 30, GH - 64 * 2 - 52, 2, b);
+      draw_vmx(GW - 64 * 2 - 36, GH - 64 * 2 - 50, 2, b);
     }
+    const char *h[] = { "STICK", "MOVE", "A", "PLACE", "B", "REMOVE", "DPAD", "FOLD", "L R", "TURN", "X", "CELL", "Y", "SETTINGS", "START", "MENU" };
+    if (mode == M_SHAPE) hints(h, 8);
   }
   if (mode == M_PROPS) {
-    int i = propSq, rows[8], nr = prop_rows(i, rows);
-    gfx_rect(110, 110, 420, 60 + nr * 26 + 30, 0x000000); gfx_frame(110, 110, 420, 60 + nr * 26 + 30, C_HI);
-    snprintf(s, sizeof s, "CELL %d SETTINGS", i); gfx_text(130, 126, 2, C_HI, s);
+    int i = propSq, rows[8], nr = prop_rows(i, rows), h = 50 + nr * 26 + 30;
+    snprintf(s, sizeof s, "CELL %d SETTINGS", i);
+    gfx_panel(120, 110, 400, h, s, C_HI);
     for (int k = 0; k < nr; k++) {
       char r[64];
       switch (rows[k]) {
         case P_MOVE: snprintf(r, sizeof r, "MOVE: %s", FUNCS[func_index(&func[i])]); break;
         case P_SIGNAL: if (trig[i]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", trig[i]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
-        case P_TURNMODE: snprintf(r, sizeof r, "TURNS: %s", func[i].kind == 'R' ? "WHILE ON (BACK WHEN OFF)" : "A QUARTER EACH CHANGE"); break;
+        case P_TURNMODE: snprintf(r, sizeof r, "TURNS: %s", func[i].kind == 'R' ? "WHILE ON, BACK WHEN OFF" : "A QUARTER EACH CHANGE"); break;
         case P_BACK: snprintf(r, sizeof r, "BACK SIDE: %s", sides[i] & 2 ? "ON" : "OFF"); break;
-        default: snprintf(r, sizeof r, "DELETE CELL (A)");
+        default: snprintf(r, sizeof r, "DELETE CELL  (A)");
       }
-      gfx_text(140, 162 + k * 26, 2, k == prow ? C_HI : C_TEXT, r);
+      row(140, 156 + k * 26, 370, k == prow, r);
     }
-    gfx_text(130, 162 + nr * 26 + 6, 2, C_DIM, "UP/DOWN PICK   LEFT/RIGHT CHANGE   B DONE");
+    const char *hh[] = { "DPAD", "PICK / CHANGE", "B", "DONE" }; hints(hh, 2);
   }
   if (mode == M_TILE) {
     int c = tcell, rows[8], nr = tile_rows(c, rows);
-    // what it will say in the game, worked out from the level as it stands
     static FoldGame tg; build(&PL); fold_start(&tg, &PL); char said[FOLD_TEXTLEN * 2];
     if (!fold_describe(&tg, c, said, sizeof said)) snprintf(said, sizeof said, "(NOTHING)");
-    int h = 70 + nr * 26 + 60;
-    gfx_rect(60, 90, 520, h, 0x000000); gfx_frame(60, 90, 520, h, C_HI);
-    gfx_text(80, 104, 2, C_HI, "TILE SETTINGS");
+    int h = 50 + nr * 26 + 70;
+    gfx_panel(70, 100, 500, h, "TILE SETTINGS", C_HI);
     for (int k = 0; k < nr; k++) {
       char r[64];
       switch (rows[k]) {
@@ -911,50 +1024,53 @@ void app_draw(void) {
         case T_WORKED: if (L.drv[c]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", L.drv[c]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
         case T_STARTS: snprintf(r, sizeof r, "STARTS: %s", L.kind[c] == FK_TELE ? (L.aux[c] & 0x80 ? "OFF" : "ON") : L.kind[c] == FK_LIGHT ? (L.aux[c] & 0x80 ? "LIT" : "DARK") : (L.aux[c] & 0x80 ? "OPEN" : "SHUT")); break;
         case T_LOOKS: snprintf(r, sizeof r, "LOOKS LIKE: %s", L.aux[c] & 0x40 ? "A BRICK WALL" : "A GATE"); break;
-        default: snprintf(r, sizeof r, "CELL SETTINGS (A)");
+        default: snprintf(r, sizeof r, "CELL SETTINGS  (A)");
       }
-      gfx_text(90, 136 + k * 26, 2, k == trow ? C_HI : C_TEXT, r);
+      row(92, 146 + k * 26, 470, k == trow, r);
     }
-    int ty = 136 + nr * 26 + 6;
-    gfx_text(80, ty, 2, C_DIM, "SAYS:");
-    char line[64]; int at = 0, li = 0, n = (int)strlen(said);   // wrap the text to the box
-    while (at < n && li < 2) { int take = n - at > 40 ? 40 : n - at; if (take == 40) while (take > 1 && said[at + take] != ' ') take--; memcpy(line, said + at, (size_t)take); line[take] = 0; gfx_text(150, ty + li * 16, 2, C_TEXT, line); at += take; while (said[at] == ' ') at++; li++; }
+    int ty = 146 + nr * 26 + 10;
+    gfx_text5(90, ty, 1, C_DIM, "IT SAYS:");
+    char line[80]; int at = 0, li = 0, n = (int)strlen(said);
+    while (at < n && li < 3) { int take = n - at > 66 ? 66 : n - at; if (take == 66) while (take > 1 && said[at + take] != ' ') take--; memcpy(line, said + at, (size_t)take); line[take] = 0; gfx_text5(150, ty + li * 14, 1, 0xe8ffd8, line); at += take; while (said[at] == ' ') at++; li++; }
+    const char *hh[] = { "DPAD", "PICK / CHANGE", "B", "DONE" }; hints(hh, 2);
   }
   if (mode == M_WIRE) {
-    int T = L.ntimer, addT = T + 1, firstL = T + 2, addL = 3 + T + L.nlogic - 1, y = 116;
-    gfx_rect(20, 60, 600, 400, 0x000000); gfx_frame(20, 60, 600, 400, C_HI);
-    gfx_text(40, 74, 3, C_HI, "WIRING");
-    gfx_text(200, 80, 2, C_DIM, "L/R FIELD  LEFT/RIGHT CHANGE  A ADD  X DELETE  B DONE");
+    int T = L.ntimer, addT = T + 1, firstL = T + 2, addL = 3 + T + L.nlogic - 1, y = 106;
+    gfx_panel(30, 52, 580, 390, "WIRING", C_HI);
     char r[96];
-    if (L.allSig) snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS %d", L.allSig); else snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS: NONE");
-    gfx_text(50, y, 2, wrow == 0 ? C_HI : C_TEXT, r); y += 24;
-    for (int k = 0; k < T; k++, y += 20) {      // timers: SIGNAL = EVERY / AFTER n MOVES
-      const FoldTimer *q = &L.timer[k]; int sel = wrow == k + 1, x = 50; char fld[3][24];
+    if (L.allSig) snprintf(r, sizeof r, "ALL TARGETS FILLED  SENDS %d", L.allSig); else snprintf(r, sizeof r, "ALL TARGETS FILLED  SENDS NONE");
+    row(56, y, 540, wrow == 0, r); y += 30;
+    gfx_text5(50, y - 6, 1, C_DIM, "TIMERS"); y += 12;
+    for (int k = 0; k < T; k++, y += 22) {
+      const FoldTimer *q = &L.timer[k]; int sel = wrow == k + 1, x = 70; char fld[3][24];
       snprintf(fld[0], 24, "%d =", q->sig); snprintf(fld[1], 24, "%s", q->kind == FT_TICK ? "EVERY" : "AFTER"); snprintf(fld[2], 24, "%d MOVES", q->n);
-      for (int f2 = 0; f2 < 3; f2++) { gfx_text(x, y, 2, sel && f2 == wfield ? C_CURSOR : sel ? C_HI : C_TEXT, fld[f2]); x += gfx_text_w(2, fld[f2]) + 16; }
+      row(56, y, 540, sel, "");
+      for (int f2 = 0; f2 < 3; f2++) { gfx_text5(x, y, 1, sel && f2 == wfield ? 0xffe070 : sel ? 0xe8ffd8 : C_TEXT, fld[f2]); x += gfx_text5_w(1, fld[f2]) + 14; }
     }
-    gfx_text(50, y, 2, wrow == addT ? C_HI : C_DIM, "ADD A TIMER / STEP LIMIT (A)"); y += 26;
-    for (int k = 0; k < L.nlogic && y < 420; k++, y += 20) {
-      const FoldLogic *q = &L.logic[k]; int x = 50, sel = wrow == firstL + k;
+    row(56, y, 540, wrow == addT, "+ ADD A TIMER / STEP LIMIT"); y += 30;
+    gfx_text5(50, y - 6, 1, C_DIM, "LOGIC"); y += 12;
+    for (int k = 0; k < L.nlogic && y < 400; k++, y += 22) {
+      const FoldLogic *q = &L.logic[k]; int x = 70, sel = wrow == firstL + k;
       char fld[7][16];
       snprintf(fld[0], 16, "%d =", q->out); snprintf(fld[1], 16, "%s", OPNAMES[q->op]);
       if (q->op == FL_COUNT) snprintf(fld[2], 16, "%d OF", q->count); else if (q->op == FL_DELAY) snprintf(fld[2], 16, "%d BY", q->count); else snprintf(fld[2], 16, " ");
       for (int i2 = 0; i2 < 4; i2++) { if (q->in[i2]) snprintf(fld[3 + i2], 16, "%d", q->in[i2]); else snprintf(fld[3 + i2], 16, "-"); }
-      for (int f2 = 0; f2 < 7; f2++) { gfx_text(x, y, 2, sel && f2 == wfield ? C_CURSOR : sel ? C_HI : C_TEXT, fld[f2]); x += gfx_text_w(2, fld[f2]) + 16; }
+      row(56, y, 540, sel, "");
+      for (int f2 = 0; f2 < 7; f2++) { gfx_text5(x, y, 1, sel && f2 == wfield ? 0xffe070 : sel ? 0xe8ffd8 : C_TEXT, fld[f2]); x += gfx_text5_w(1, fld[f2]) + 14; }
     }
-    gfx_text(50, y + 4, 2, wrow == addL ? C_HI : C_DIM, "ADD A LOGIC PIECE (A)");
-    gfx_text(40, 436, 2, C_DIM, "BUTTONS, PLATES, SENSORS, LIGHTS... SEND SIGNALS (Y ON A TILE)");
+    row(56, y, 540, wrow == addL, "+ ADD A LOGIC PIECE");
+    const char *hh[] = { "DPAD", "PICK / CHANGE", "L R", "FIELD", "A", "ADD", "X", "DELETE", "B", "DONE" }; hints(hh, 5);
   }
   if (mode == M_MENU) {
-    gfx_rect(170, 100, 300, 270, 0x000000); gfx_frame(170, 100, 300, 270, C_HI);
-    gfx_text(190, 116, 3, C_HI, "MENU");
+    gfx_panel(190, 90, 260, 46 + NMENU * 30, "MENU", C_HI);
     for (int k = 0; k < NMENU; k++) {
-      char row[96];
-      if (k == 1) snprintf(row, sizeof row, "VMX WINDOW: %s", vmxWin ? "ON" : "OFF");
-      else if (k == 4) snprintf(row, sizeof row, "LOAD: %s", nfiles ? files[fileIx] : "-");
-      else snprintf(row, sizeof row, "%s", MENU[k]);
-      gfx_text(196, 160 + k * 28, 2, k == mrow ? C_HI : C_TEXT, row);
+      char rr[96];
+      if (k == 1) snprintf(rr, sizeof rr, "VMX WINDOW: %s", vmxWin ? "ON" : "OFF");
+      else if (k == 4) snprintf(rr, sizeof rr, "LOAD: %s", nfiles ? files[fileIx] : "-");
+      else snprintf(rr, sizeof rr, "%s", MENU[k]);
+      row(212, 136 + k * 30, 224, k == mrow, rr);
     }
+    const char *hh[] = { "DPAD", "PICK", "A", "CHOOSE", "B", "BACK" }; hints(hh, 3);
   }
-  if (msgT) { int w = gfx_text_w(2, msg); gfx_rect(GW / 2 - w / 2 - 8, GH - 60, w + 16, 22, 0x000000); gfx_text(GW / 2 - w / 2, GH - 56, 2, C_HI, msg); }
+  if (msgT) { int w = gfx_text5_w(2, msg); gfx_dim(GW / 2 - w / 2 - 14, GH - 74, w + 28, 30, 0.7f); gfx_rect(GW / 2 - w / 2 - 14, GH - 74, 3, 30, C_HI); gfx_text5(GW / 2 - w / 2, GH - 66, 2, 0xe8ffd8, msg); }
 }

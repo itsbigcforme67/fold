@@ -33,6 +33,20 @@ void gfx_quad(const Vec3 p[4], const Tex *t, uint32_t colour, float shade);
 void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick);
 int gfx_project(Vec3 p, float *sx, float *sy);                          // 0 if behind the camera
 
+// looks
+void gfx_gradient(uint32_t top, uint32_t bottom);                       // background, with a soft vignette
+void gfx_fog(uint32_t colour, float start, float end);                  // 3D colours fade towards colour with distance
+void gfx_quad_alpha(const Vec3 p[4], uint32_t colour, float alpha);    // see-through flat quad (depth-tested, no write)
+void gfx_shadow_begin(void);                                            // shadows: mark quads, then darken once
+void gfx_shadow_quad(const Vec3 p[4]);
+void gfx_shadow_end(float strength);
+void gfx_dim(int x, int y, int w, int h, float k);                      // darken a rectangle (behind panels)
+void gfx_panel(int x, int y, int w, int h, const char *title, uint32_t accent);   // a rounded panel with a title bar
+void gfx_text5(int x, int y, int scale, uint32_t c, const char *s);    // 5x7 font, 6*scale wide per char
+int gfx_text5_w(int scale, const char *s);
+int gfx_badge(int x, int y, const char *label);                         // a pad button badge (A green, B red...); width
+int gfx_hint(int x, int y, const char *label, const char *what);        // badge + words; returns the width
+
 Mat4 mat_mul(Mat4 a, Mat4 b);
 Mat4 mat_perspective(float fovy, float aspect, float zn, float zf);
 Mat4 mat_lookat(Vec3 eye, Vec3 at, Vec3 up);
