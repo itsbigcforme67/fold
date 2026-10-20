@@ -57,7 +57,8 @@ int main(void) {
   SDL_Init(SDL_INIT_GAMECONTROLLER);
   app_init("D:\\levels");
   SDL_GameController *pad = NULL;
-  int demo = padscript_open("D:\\demo.txt"), trace = 1;   // trace: the pad and state each tick to COM1 while a demo plays          // a pad script on the disc plays first (tests, attract)
+  int demo = padscript_open("D:\\demo.txt"), trace = 1;   // a pad script on the disc plays first (tests, attract);
+                                                          // trace: its pad and the editor state to COM1
   serial(demo ? "FOLD: playing D:\\demo.txt\n" : "FOLD: started\n");
   Uint32 last = SDL_GetTicks(), fpsT = last; int frames = 0, fps = 0;
   while (!app_quit()) {
