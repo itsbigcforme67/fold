@@ -216,6 +216,11 @@ static int box_slide(FoldGame *g, int c, int d) {
   }
   return c;
 }
+// a teleporter's partner (the other pad with its pair number), or -1
+static int partner(const FoldGame *g, int c) {
+  for (int k = 0; k < 2 * g->lv->nsq * NN; k++) if (k != c && g->kind[k] == FK_TELE && g->aux[k] == g->aux[c] && !g->wall[k]) return k;
+  return -1;
+}
 int fold_move(FoldGame *g, int sd) {
   int d = (sd + g->camrot) & 3, d1, d2;
   int c1 = fold_step(&g->s, g->p, d, &d1);
@@ -233,12 +238,20 @@ int fold_move(FoldGame *g, int sd) {
     set(g, A_BOX, c1, 0); set(g, A_BOX, c2, 1); g->pushes++; r |= FOLD_PUSHED;
     g->p = c1;                                 // you are behind it now (so it can't slide back through you)
     c2 = box_slide(g, c2, d2);
+    if (c2 >= 0 && g->kind[c2] == FK_TELE) {   // onto a pad: across to its partner if that's free
+      int t = partner(g, c2);
+      if (t >= 0 && !g->box[t] && t != c1) { set(g, A_BOX, c2, 0); set(g, A_BOX, t, 1); c2 = t; r |= FOLD_TELEPORTED; }
+    }
   }
   int c = c1, hd = d1;                        // you: one step, then on ice keep sliding (a box stops you)
   for (int guard = 0; guard < FOLD_MAXC && g->kind[c] == FK_ICE; guard++) {
     int nd, n = fold_step(&g->s, c, hd, &nd);
     if (!enterable(g, n, nd, 0) || g->box[n]) break;
     c = n; hd = nd;
+  }
+  if (g->kind[c] == FK_TELE) {                // onto a pad: across to its partner (same heading there) if it's free
+    int t = partner(g, c);
+    if (t >= 0 && !g->box[t]) { c = t; r |= FOLD_TELEPORTED; }
   }
   g->p = c; g->moves++;
   if (c / NN != g->camf) { g->camf = c / NN; g->camrot = (hd - sd) & 3; r |= FOLD_CROSSED; }
@@ -299,7 +312,8 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<_", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_123456789", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch >= '1' && ch <= '9') { lv->kind[c] = FK_TELE; lv->aux[c] = (uint8_t)(ch - '0'); }
         if (ch == '_') lv->kind[c] = FK_PIT;
         if (ch == '~') lv->kind[c] = FK_ICE;
         if (strchr("^>v<", ch)) { lv->kind[c] = FK_ONEWAY; lv->aux[c] = (uint8_t)(strchr("^>v<", ch) - "^>v<"); }

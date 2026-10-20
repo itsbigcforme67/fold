@@ -53,6 +53,17 @@ int main(void) {
   moves("r"); { int b[] = { CELL(0, 2, 4), CELL(0, 2, 6) }; expect("pit: you can't walk in", CELL(0, 2, 2), b, 2); }
   g = g0; moves("ldd" "r" "r"); { int b[] = { CELL(0, 2, 6) }; expect("pit: a box fills it, then you can walk on", CELL(0, 3, 4), b, 1); }
   g = g0; moves("ldddddr"); { expect("pit: a box sliding off ice fills one", CELL(0, 2, 6), (int[]){ CELL(0, 2, 4) }, 1); }
+  // ---- teleporter pads: two cells side by side, not joined by any doorway ----
+  load("fold 1\nname T3\nsquare 0 0 0  1 0 0  0 1 0\nsquare 1 0 0  1 0 0  0 1 0\n"
+       "room 0 f\n########\n#......#\n#.p1...#\n#......#\n#.b2...#\n#......#\n#......#\n########\n"
+       "room 1 f\n########\n#......#\n#...1..#\n#......#\n#...2..#\n#......#\n#......#\n########\nbox 1 f 4 4\n");
+  moves("r"); expect("teleporter: you come out on its partner", CELL(2, 4, 2), (int[]){ CELL(0, 2, 4), CELL(2, 4, 4) }, 2);
+  g = g0; moves("rr"); expect("teleporter: and keep going the same way", CELL(2, 5, 2), (int[]){ CELL(0, 2, 4), CELL(2, 4, 4) }, 2);
+  g = g0; moves("ldd" "r"); expect("teleporter: a box can't cross to a busy pad", CELL(0, 2, 4), (int[]){ CELL(0, 3, 4), CELL(2, 4, 4) }, 2);
+  load("fold 1\nname T4\nsquare 0 0 0  1 0 0  0 1 0\nsquare 1 0 0  1 0 0  0 1 0\n"
+       "room 0 f\n########\n#......#\n#......#\n#......#\n#pb2...#\n#......#\n#......#\n########\n"
+       "room 1 f\n########\n#......#\n#......#\n#......#\n#...2..#\n#......#\n#......#\n########\n");
+  moves("r"); expect("teleporter: a pushed box crosses to a free pad", CELL(0, 2, 4), (int[]){ CELL(2, 4, 4) }, 1);
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }
