@@ -34,3 +34,6 @@ both sticks, the face buttons. Plan: export those objects with Blender headless 
 grid/cursor, crossing planes and film camera built in code, and gfx has gfx_clip / gfx_zclear_rect / view offset.
 Still to do: the export tool, a mesh loader, swap the stand-in models for the Duke ones, wire icons_update /
 icons_* into app.c's level view (replacing level_controls' flat drawings), screenshot, commit.
+The Duke parts are STL files in `XMU GADGET/anim/duke/`: part_dpad, part_stick_l, part_stick_r, part_a / part_b /
+part_x / part_y (plus *_core). Convert them with a small Python tool (numpy, decimated for the software renderer,
+centred, colours by part) to an asset the app loads; no Blender needed.
