@@ -6,22 +6,29 @@
 #   tools/run_xemu.sh --shot out.png --after "20 30"   screenshots at those seconds, then quit
 #   --record out.mp4   also record the display until the last screenshot
 #   --show             on the desktop instead (by hand only)
+#   --xbe FILE         boot a DVD holding only FILE instead of fold.iso;  --net  xemu's NAT network (the laptop is
+#                      10.0.2.2);  --hdd FILE  another disk image (tools/xemu_loader_test.sh's formatted one)
 # The XBE's log lines (if any) come out of the emulated serial port: build/xbox/xemu/serial.txt.
 set -e
 cd "$(dirname "$0")/.."
 XF=${XBOX_FILES:-"$HOME/claude projects/MH XBOX/mh1-xbox/xbox_files"}
 XEMU=${XEMU:-$HOME/xboxdev/xemu/xemu-0.8.136-x86_64.AppImage}
-SHOT=""; AFTER=30; SHOW=; REC=
+SHOT=""; AFTER=30; SHOW=; REC=; XBE=; NET=; HDD=
 while [ $# -gt 0 ]; do
     case "$1" in
     --shot) SHOT=$2; shift 2 ;; --after) AFTER=$2; shift 2 ;; --record) REC=$2; shift 2 ;;
-    --show) SHOW=1; shift ;; *) echo "unknown option $1"; exit 2 ;;
+    --show) SHOW=1; shift ;; --xbe) XBE=$2; shift 2 ;; --net) NET=1; shift ;; --hdd) HDD=$2; shift 2 ;; *) echo "unknown option $1"; exit 2 ;;
     esac
 done
 for f in mcpx.bin bios.bin; do [ -f "$XF/$f" ] || { echo "missing $XF/$f (the owner's own dumps)"; exit 1; }; done
-ISO=$PWD/build/xbox/fold.iso; [ -f "$ISO" ] || { echo "no $ISO: run tools/build_xbox.sh"; exit 1; }
 W=$PWD/build/xbox/xemu; mkdir -p "$W/home/xemu/xemu"
-[ -f "$W/hdd.img" ] || truncate -s 8G "$W/hdd.img"
+ISO=$PWD/build/xbox/fold.iso
+if [ -n "$XBE" ]; then                      # a DVD holding only that XBE
+    rm -rf "$W/iso_other"; mkdir -p "$W/iso_other"; cp "$XBE" "$W/iso_other/default.xbe"
+    ISO=$W/other.iso; rm -f "$ISO"; ~/xboxdev/nxdk/tools/extract-xiso/build/extract-xiso -c "$W/iso_other" "$ISO" >/dev/null
+fi
+[ -f "$ISO" ] || { echo "no $ISO: run tools/build_xbox.sh"; exit 1; }
+HDD=${HDD:-$W/hdd.img}; [ -f "$HDD" ] || truncate -s 8G "$HDD"
 cat > "$W/home/xemu/xemu/xemu.toml" <<TOML
 [general]
 show_welcome = false
@@ -29,9 +36,10 @@ show_welcome = false
 bootrom_path = '$XF/mcpx.bin'
 flashrom_path = '$XF/bios.bin'
 eeprom_path = '$W/eeprom.bin'
-hdd_path = '$W/hdd.img'
+hdd_path = '$HDD'
 dvd_path = '$ISO'
 TOML
+[ -z "$NET" ] || printf '[net]\nenable = true\nbackend = '"'"'nat'"'"'\n' >> "$W/home/xemu/xemu/xemu.toml"
 export XDG_DATA_HOME="$W/home"
 DBG="$W/serial.txt"; : > "$DBG"
 set -- -device lpc47m157 -serial "file:$DBG"

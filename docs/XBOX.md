@@ -22,11 +22,23 @@ repo's `xbox_files/` (never copied here; `XBOX_FILES=dir` for another place) and
 `build/xbox/xemu/`. The XBE logs to COM1 (`FOLD: started`, `FOLD: <n> fps` each second), which xemu writes to
 `build/xbox/xemu/serial.txt`; a retail Xbox has nothing there and gets nothing.
 
-## Install on the real Xbox
+## Install on the real Xbox (network loader)
 
-    tools/xbox_upload.sh        # FTP to E:\Games\FOLD; the owner types the login (finds the console at .115 or .116; XBOX_IP=... to name it)
+Evolution X's FTP drops files bigger than about half a megabyte at random points (curl 426; FOLD's 1.2 MB XBE
+failed four times in a row), as the mh1-xbox port found. So only a small loader goes over FTP, once:
 
-Then Play Games from Hard Drive -> FOLD. Levels are read from and saved to `E:\Games\FOLD\levels`.
+    tools/xbox_upload.sh        # the owner types the FTP login; finds the console at .115 / .116 (XBOX_IP=...)
+
+It puts `E:\Games\FOLD\default.xbe` (the loader, `xbox/loader/main.c`, 0.5 MB) and `loader.txt` (this laptop's
+address, port 8770) on the Xbox. Then, with
+
+    tools/xbox_serve.py         # on the laptop: serves build/xbox/FOLD (re-read on every request)
+
+running, each start of FOLD from Play Games from Hard Drive asks the laptop for the build's version and, when it
+changed, downloads the whole build in one request (`/pack`: fold.xbe, assets, levels; 2.2 MB), writes it next to
+itself and starts `fold.xbe`. Two connections a start at most. Without the laptop it starts the copy on the disk.
+Levels saved on the Xbox (new names) are kept. `tools/xemu_loader_test.sh` checks all of this in xemu on a scratch
+disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the test DVD are copied from mh1-xbox.
 
 ## Controls (Duke)
 
