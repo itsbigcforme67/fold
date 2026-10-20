@@ -148,6 +148,19 @@ int main(void) {
   CHECK("light: and a lit light is an input (gate opens)", OPEN(3, 6));
   { char t[240]; fold_describe(&g, CELL(0, 5, 5), t, sizeof t); printf("   light says: %s\n", t); CHECK("talk: a light", strstr(t, "IT IS ON") && strstr(t, "BOTH PLATES") && strstr(t, "WORKS A GATE")); }
   { FoldGame t2 = g; fold_move(&t2, 1); CHECK("light: you can't walk into it", 1); }
+  // ---- ticks, step limits, delays ----
+  load(level("########\n#......#\n#.p....#\n#......#\n#......#\n#......#\n#.|.|.|#\n########\n"
+             "input 1 tick 2\ninput 2 moves 3\nlogic 3 delay 2 2\ndrive 0 f 2 6 1\ndrive 0 f 4 6 2\ndrive 0 f 6 6 3\n"));
+  moves("r"); CHECK("tick: off on move 1", !OPEN(2, 6));
+  moves("r"); CHECK("tick: on for move 2", OPEN(2, 6));
+  moves("l"); CHECK("tick: off again on move 3", !OPEN(2, 6));
+  CHECK("moves: on once 3 moves are made", OPEN(4, 6));
+  CHECK("delay: not yet (2 moves late)", !OPEN(6, 6));
+  moves("r"); CHECK("delay: still not, a move later", !OPEN(6, 6));
+  moves("l"); CHECK("delay: on 2 moves after", OPEN(6, 6));
+  { char t[200]; fold_describe(&g, CELL(0, 6, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: a delayed step limit", strstr(t, "3 MOVES") && strstr(t, "2 MOVES LATER")); }
+  fold_undo(&g); fold_undo(&g); CHECK("delay: undone", !OPEN(6, 6) && OPEN(4, 6));
+  { FoldGame t2 = g; while (fold_undo(&t2)) {} g = t2; CHECK("timers: undo to the start", !OPEN(2, 6) && !OPEN(4, 6) && !OPEN(6, 6) && g.moves == 0); }
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

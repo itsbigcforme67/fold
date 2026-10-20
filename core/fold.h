@@ -40,8 +40,13 @@ enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLAT
 // a tile: each time it changes a gate opens / shuts, a teleporter switches on / off, a one-way turns round. A signal's
 // links work cells: each change flips / shifts / hinges it (back and forth), turns it a quarter ('r'), or turns it while
 // on and back while off ('R').
-enum { FL_AND, FL_OR, FL_XOR, FL_NOT, FL_LATCH, FL_COUNT };   // latch: on once its input is (until input 2 resets it)
-typedef struct { uint8_t op, n, out, count; uint8_t in[4]; } FoldLogic;   // count: on after that many switch-ons
+enum { FL_AND, FL_OR, FL_XOR, FL_NOT, FL_LATCH, FL_COUNT, FL_DELAY };   // latch: on once its input is (until input 2
+// resets it); count: on after n switch-ons; delay: its input as it was n moves ago (n = 1..8)
+typedef struct { uint8_t op, n, out, count; uint8_t in[4]; } FoldLogic;   // count = a counter's / delay's n
+// timers: a tick is on for one move every n moves; 'moves' is on once you have made n moves
+enum { FT_TICK, FT_MOVES };
+typedef struct { uint8_t kind, sig, n; } FoldTimer;
+#define FOLD_MAXTIMER 8
 
 typedef struct { int8_t o[3], u[3], v[3], n[3]; } FoldSquare;   // n = v x u: the front's outward normal
 typedef struct { char kind; uint8_t sq; char spec[3]; } FoldAct; // kind f r s h g; spec "u".."i" or "<e><+|->"; g: sq = gate group
@@ -57,6 +62,7 @@ typedef struct {
   int nact[FOLD_MAXSIG]; FoldAct act[FOLD_MAXSIG][FOLD_MAXACT];   // a signal's cell moves (act[s - 1])
   int nlogic; FoldLogic logic[FOLD_MAXLOGIC];
   int allSig;                             // the signal for "every target has a box" (0 = none)
+  int ntimer; FoldTimer timer[FOLD_MAXTIMER];
   int ntext; char text[FOLD_MAXTEXT][FOLD_TEXTLEN];
   int geo[FOLD_MAXSQ];                    // index+1 into act of the square's one shift / hinge, 0 = none
   FoldAct geoAct[FOLD_MAXSQ];

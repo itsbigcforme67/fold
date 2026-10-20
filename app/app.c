@@ -113,6 +113,7 @@ static void remove_sq(int i) {
 // ---- signals -----------------------------------------------------------------------------------------------------
 static int sig_used(int k) {                  // does anything send signal k?
   if (L.allSig == k) return 1;
+  for (int i = 0; i < L.ntimer; i++) if (L.timer[i].sig == k) return 1;
   for (int i = 0; i < L.nlogic; i++) if (L.logic[i].out == k) return 1;
   for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.btn[c] == k && !L.wall[c]) return 1;
   return 0;
@@ -173,11 +174,12 @@ int app_save(const char *p) {
     }
   }
   if (B.allSig) fprintf(f, "input %d alltargets\n", B.allSig);
-  static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count" };
+  for (int k = 0; k < B.ntimer; k++) if (B.timer[k].sig) fprintf(f, "input %d %s %d\n", B.timer[k].sig, B.timer[k].kind == FT_TICK ? "tick" : "moves", B.timer[k].n ? B.timer[k].n : 1);
+  static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count", "delay" };
   for (int k = 0; k < B.nlogic; k++) {
     const FoldLogic *q = &B.logic[k];
     fprintf(f, "logic %d %s", q->out, OPS[q->op]);
-    if (q->op == FL_COUNT) fprintf(f, " %d", q->count ? q->count : 1);
+    if (q->op == FL_COUNT || q->op == FL_DELAY) fprintf(f, " %d", q->count ? q->count : 1);
     for (int i = 0; i < q->n; i++) fprintf(f, " %d", q->in[i]);
     fputc('\n', f);
   }
@@ -507,9 +509,11 @@ static void tile_frame(const Pad *p) {
 }
 
 // ---- wiring: the level-wide input and the logic pieces ------------------------------------------------------------
-static const char *OPNAMES[] = { "AND", "OR", "XOR", "NOT", "LATCH", "COUNT" };
+static const char *OPNAMES[] = { "AND", "OR", "XOR", "NOT", "LATCH", "COUNT", "DELAY" };
+#define NOPS 7
+// rows: 0 all targets; 1..T timers; T+1 add a timer; then the logic pieces; last: add a piece
 static void wire_frame(const Pad *p) {
-  int d, nr = 2 + L.nlogic;                   // row 0 all targets, 1..nlogic pieces, last: add one
+  int d, T = L.ntimer, nr = 3 + T + L.nlogic, addT = T + 1, firstL = T + 2, addL = nr - 1;
   if (wrow >= nr) wrow = nr - 1;
   if (pressed(p, PAD_L)) wfield = wfield > 0 ? wfield - 1 : 0;
   if (pressed(p, PAD_R)) wfield = wfield < 6 ? wfield + 1 : 6;
@@ -519,21 +523,30 @@ static void wire_frame(const Pad *p) {
     else {
       int st = sd == 1 ? 1 : -1;
       if (wrow == 0) L.allSig = sig_cycle(L.allSig, st, 1);
-      else if (wrow <= L.nlogic) {               // fields: 0 out, 1 op, 2 count, 3..6 inputs
-        FoldLogic *q = &L.logic[wrow - 1];
+      else if (wrow <= T) {                      // a timer: fields 0 signal, 1 kind, 2 n
+        FoldTimer *q = &L.timer[wrow - 1];
+        if (wfield == 0) q->sig = (uint8_t)sig_cycle(q->sig, st, 0);
+        else if (wfield == 1) q->kind ^= 1;
+        else { int n = q->n + st; q->n = (uint8_t)(n < 1 ? 1 : n > 255 ? 255 : n); }
+      } else if (wrow >= firstL && wrow < addL) {   // a piece: 0 out, 1 op, 2 count / delay, 3..6 inputs
+        FoldLogic *q = &L.logic[wrow - firstL];
         if (wfield == 0) q->out = (uint8_t)sig_cycle(q->out, st, 0);
-        else if (wfield == 1) q->op = (uint8_t)((q->op + st + 6) % 6);
-        else if (wfield == 2) q->count = (uint8_t)(q->count + st < 1 ? 1 : q->count + st > 99 ? 99 : q->count + st);
+        else if (wfield == 1) q->op = (uint8_t)((q->op + st + NOPS) % NOPS);
+        else if (wfield == 2) { int mx = q->op == FL_DELAY ? 8 : 99, n = q->count + st; q->count = (uint8_t)(n < 1 ? 1 : n > mx ? mx : n); }
         else q->in[wfield - 3] = (uint8_t)sig_cycle(q->in[wfield - 3], st, 1);
       }
     }
   }
-  if (pressed(p, PAD_A) && wrow == nr - 1 && L.nlogic < FOLD_MAXLOGIC) {   // a new AND, sending a fresh signal
-    FoldLogic *q = &L.logic[L.nlogic]; memset(q, 0, sizeof *q);
-    q->op = FL_AND; q->count = 2; q->n = 4; q->out = (uint8_t)next_signal(); L.nlogic++; wrow = L.nlogic; wfield = 3;
+  if (pressed(p, PAD_A) && wrow == addT && L.ntimer < FOLD_MAXTIMER) {      // a new step limit, sending a fresh signal
+    FoldTimer *q = &L.timer[L.ntimer]; q->kind = FT_MOVES; q->n = 20; q->sig = (uint8_t)next_signal(); L.ntimer++; wrow = L.ntimer; wfield = 2;
   }
-  if (pressed(p, PAD_X) && wrow >= 1 && wrow <= L.nlogic) {               // delete a piece
-    memmove(&L.logic[wrow - 1], &L.logic[wrow], sizeof(FoldLogic) * (L.nlogic - wrow)); L.nlogic--;
+  if (pressed(p, PAD_A) && wrow == addL && L.nlogic < FOLD_MAXLOGIC) {      // a new AND, sending a fresh signal
+    FoldLogic *q = &L.logic[L.nlogic]; memset(q, 0, sizeof *q);
+    q->op = FL_AND; q->count = 2; q->n = 4; q->out = (uint8_t)next_signal(); L.nlogic++; wrow = firstL + L.nlogic; wfield = 3;
+  }
+  if (pressed(p, PAD_X)) {                                                  // delete a timer / piece
+    if (wrow >= 1 && wrow <= T) { memmove(&L.timer[wrow - 1], &L.timer[wrow], sizeof(FoldTimer) * (L.ntimer - wrow)); L.ntimer--; }
+    else if (wrow >= firstL && wrow < addL) { int k = wrow - firstL; memmove(&L.logic[k], &L.logic[k + 1], sizeof(FoldLogic) * (L.nlogic - k - 1)); L.nlogic--; }
   }
   if (pressed(p, PAD_B) || pressed(p, PAD_START)) mode = M_SHAPE;
 }
@@ -908,25 +921,29 @@ void app_draw(void) {
     while (at < n && li < 2) { int take = n - at > 40 ? 40 : n - at; if (take == 40) while (take > 1 && said[at + take] != ' ') take--; memcpy(line, said + at, (size_t)take); line[take] = 0; gfx_text(150, ty + li * 16, 2, C_TEXT, line); at += take; while (said[at] == ' ') at++; li++; }
   }
   if (mode == M_WIRE) {
+    int T = L.ntimer, addT = T + 1, firstL = T + 2, addL = 3 + T + L.nlogic - 1, y = 116;
     gfx_rect(20, 60, 600, 400, 0x000000); gfx_frame(20, 60, 600, 400, C_HI);
     gfx_text(40, 74, 3, C_HI, "WIRING");
-    gfx_text(240, 80, 2, C_DIM, "L/R FIELD  LEFT/RIGHT CHANGE  X DELETE  B DONE");
+    gfx_text(200, 80, 2, C_DIM, "L/R FIELD  LEFT/RIGHT CHANGE  A ADD  X DELETE  B DONE");
     char r[96];
-    if (L.allSig) snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS SIGNAL %d", L.allSig); else snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS: NONE");
-    gfx_text(50, 116, 2, wrow == 0 ? C_HI : C_TEXT, r);
-    for (int k = 0; k < L.nlogic && k < 12; k++) {
-      const FoldLogic *q = &L.logic[k]; int y = 144 + k * 22, x = 50, sel = wrow == k + 1;
+    if (L.allSig) snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS %d", L.allSig); else snprintf(r, sizeof r, "ALL TARGETS FILLED SENDS: NONE");
+    gfx_text(50, y, 2, wrow == 0 ? C_HI : C_TEXT, r); y += 24;
+    for (int k = 0; k < T; k++, y += 20) {      // timers: SIGNAL = EVERY / AFTER n MOVES
+      const FoldTimer *q = &L.timer[k]; int sel = wrow == k + 1, x = 50; char fld[3][24];
+      snprintf(fld[0], 24, "%d =", q->sig); snprintf(fld[1], 24, "%s", q->kind == FT_TICK ? "EVERY" : "AFTER"); snprintf(fld[2], 24, "%d MOVES", q->n);
+      for (int f2 = 0; f2 < 3; f2++) { gfx_text(x, y, 2, sel && f2 == wfield ? C_CURSOR : sel ? C_HI : C_TEXT, fld[f2]); x += gfx_text_w(2, fld[f2]) + 16; }
+    }
+    gfx_text(50, y, 2, wrow == addT ? C_HI : C_DIM, "ADD A TIMER / STEP LIMIT (A)"); y += 26;
+    for (int k = 0; k < L.nlogic && y < 420; k++, y += 20) {
+      const FoldLogic *q = &L.logic[k]; int x = 50, sel = wrow == firstL + k;
       char fld[7][16];
       snprintf(fld[0], 16, "%d =", q->out); snprintf(fld[1], 16, "%s", OPNAMES[q->op]);
-      if (q->op == FL_COUNT) snprintf(fld[2], 16, "%d OF", q->count); else snprintf(fld[2], 16, " ");
+      if (q->op == FL_COUNT) snprintf(fld[2], 16, "%d OF", q->count); else if (q->op == FL_DELAY) snprintf(fld[2], 16, "%d BY", q->count); else snprintf(fld[2], 16, " ");
       for (int i2 = 0; i2 < 4; i2++) { if (q->in[i2]) snprintf(fld[3 + i2], 16, "%d", q->in[i2]); else snprintf(fld[3 + i2], 16, "-"); }
-      for (int f2 = 0; f2 < 7; f2++) {
-        uint32_t col = sel && f2 == wfield ? C_CURSOR : sel ? C_HI : C_TEXT;
-        gfx_text(x, y, 2, col, fld[f2]); x += gfx_text_w(2, fld[f2]) + 16;
-      }
+      for (int f2 = 0; f2 < 7; f2++) { gfx_text(x, y, 2, sel && f2 == wfield ? C_CURSOR : sel ? C_HI : C_TEXT, fld[f2]); x += gfx_text_w(2, fld[f2]) + 16; }
     }
-    gfx_text(50, 144 + L.nlogic * 22 + 8, 2, wrow == L.nlogic + 1 ? C_HI : C_DIM, "ADD A LOGIC PIECE (A)");
-    gfx_text(40, 430, 2, C_DIM, "SIGNALS: BUTTONS, PLATES, SENSORS... SEND THEM (Y ON A TILE)");
+    gfx_text(50, y + 4, 2, wrow == addL ? C_HI : C_DIM, "ADD A LOGIC PIECE (A)");
+    gfx_text(40, 436, 2, C_DIM, "BUTTONS, PLATES, SENSORS, LIGHTS... SEND SIGNALS (Y ON A TILE)");
   }
   if (mode == M_MENU) {
     gfx_rect(170, 100, 300, 270, 0x000000); gfx_frame(170, 100, 300, 270, C_HI);

@@ -211,6 +211,16 @@ static void inputs(FoldGame *g, uint8_t *v) {
     }
   }
   if (g->lv->allSig) v[g->lv->allSig] |= (uint8_t)alltargets(g);
+  for (int k = 0; k < g->lv->ntimer; k++) {   // timers count your moves
+    const FoldTimer *T = &g->lv->timer[k]; int n = T->n ? T->n : 1;
+    v[T->sig] |= (uint8_t)(T->kind == FT_TICK ? g->moves > 0 && g->moves % n == 0 : g->moves >= n);
+  }
+}
+// once a move: each delay piece takes in its input as it stood when the last move ended (its outputs see it n moves
+// later)
+static void delays(FoldGame *g) {
+  for (int k = 0; k < g->lv->nlogic; k++) if (g->lv->logic[k].op == FL_DELAY)
+    set(g, A_LST, k, (uint8_t)(g->lstate[k] << 1 | (g->sig[g->lv->logic[k].in[0]] != 0)));
 }
 static void logic(FoldGame *g, uint8_t *v) {
   for (int k = 0; k < g->lv->nlogic; k++) {
@@ -229,6 +239,7 @@ static void logic(FoldGame *g, uint8_t *v) {
         if (v[L->in[0]] && !g->lprev[k] && g->lstate[k] < 255) set(g, A_LST, k, g->lstate[k] + 1);
         set(g, A_LPREV, k, v[L->in[0]] != 0);
         on = g->lstate[k] >= L->count; break;
+      case FL_DELAY: { int n = L->count < 1 ? 1 : L->count > 8 ? 8 : L->count; on = g->lstate[k] >> (n - 1) & 1; break; }
     }
     v[L->out] |= (uint8_t)on;
   }
@@ -346,6 +357,7 @@ int fold_move(FoldGame *g, int sd) {
   if (c / NN != g->camf) { g->camf = c / NN; g->camrot = (hd - sd) & 3; r |= FOLD_CROSSED; }
   // a box landing on a plain button flips its signal; then every signal is worked out and its outputs move
   if (c2 >= 0 && g->btn[c2] && g->kind[c2] == FK_FLOOR && !g->target[c2]) set(g, A_TOG, g->btn[c2], !g->toggled[g->btn[c2]]);
+  delays(g);
   r |= evaluate(g);
   return r;
 }
@@ -374,6 +386,13 @@ int fold_facing(const FoldGame *g) { int nd; return fold_step(&g->s, g->p, g->fa
 // out from the wiring, always as "a cell" / "a gate" (never which one or where: finding that out is the game).
 static void cat(char *o, int len, const char *s) { size_t l = strlen(o); if ((int)l < len - 1) { strncpy(o + l, s, (size_t)len - 1 - l); o[len - 1] = 0; } }
 static const char *src_name(const FoldGame *g, int s) {   // what sends signal s
+  static char tb[40];
+  for (int k = 0; k < g->lv->ntimer; k++) if (g->lv->timer[k].sig == s) {
+    const FoldTimer *T = &g->lv->timer[k];
+    if (T->kind == FT_TICK) { if (T->n <= 1) snprintf(tb, sizeof tb, "YOU MOVE"); else snprintf(tb, sizeof tb, "EVERY %d MOVES", T->n); }
+    else snprintf(tb, sizeof tb, "YOU HAVE MADE %d MOVES", T->n);
+    return tb;
+  }
   for (int c = 0; c < 2 * g->lv->nsq * NN; c++) if (g->btn[c] == s && !g->wall[c]) {
     switch (g->kind[c]) { case FK_PLATE: return "A PLATE IS HELD"; case FK_SENSOR: return "YOU STAND ON A SENSOR"; case FK_KEY: return "A KEY IS TAKEN";
                           case FK_LIGHT: return "A LIGHT IS ON"; }
@@ -391,6 +410,7 @@ static void cond(const FoldGame *g, int s, char *o, int len, int depth) {   // w
     if (L->op == FL_NOT) { cat(o, len, "NOT ("); cond(g, L->in[0], o, len, depth + 1); cat(o, len, ")"); return; }
     if (L->op == FL_LATCH) { cond(g, L->in[0], o, len, depth + 1); cat(o, len, " (ONCE IS ENOUGH)"); return; }
     if (L->op == FL_COUNT) { char b[24]; cond(g, L->in[0], o, len, depth + 1); snprintf(b, sizeof b, " %d TIMES", L->count); cat(o, len, b); return; }
+    if (L->op == FL_DELAY) { char b[32]; cond(g, L->in[0], o, len, depth + 1); snprintf(b, sizeof b, L->count > 1 ? " (%d MOVES LATER)" : " (A MOVE LATER)", L->count); cat(o, len, b); return; }
     // inputs all of one kind read as one phrase: BOTH PLATES ARE HELD, EITHER BUTTON IS PRESSED...
     static const char *ONE[] = { "A PLATE IS HELD", "A BUTTON IS PRESSED", "A BOX IS ON A TARGET", "A KEY IS TAKEN", "A LIGHT IS ON" };
     static const char *MANY[] = { "PLATES ARE HELD", "BUTTONS ARE PRESSED", "BOXES ARE ON THEIR TARGETS", "KEYS ARE TAKEN", "LIGHTS ARE ON" };
@@ -437,6 +457,7 @@ static void effect(const FoldGame *g, int s, char *o, int len) {   // what signa
       case FL_XOR: snprintf(b, sizeof b, "IT IS 1 OF %d: ONLY 1 AT A TIME", L->n); break;
       case FL_NOT: snprintf(b, sizeof b, "SOMETHING HAPPENS WHILE IT IS OFF"); break;
       case FL_LATCH: snprintf(b, sizeof b, i ? "IT RESETS SOMETHING" : "ONCE IS ENOUGH"); break;
+      case FL_DELAY: snprintf(b, sizeof b, L->count > 1 ? "IT ACTS %d MOVES LATE" : "IT ACTS A MOVE LATE", L->count); break;
       default: snprintf(b, sizeof b, "IT NEEDS %d GOES", L->count); break;
     }
     cat(o, len, n++ ? ". " : " "); cat(o, len, b);
@@ -597,19 +618,27 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
     }
     else if (!strcmp(word, "input")) {           // a level-wide input
       int k; char what[16];
-      if (sscanf(rest, "%d %15s", &k, what) != 2 || k < 1 || k >= FOLD_MAXSIG || strcmp(what, "alltargets")) FAIL("line %d: input <signal> alltargets", lineno);
-      lv->allSig = k;
+      int n = 0;
+      if (sscanf(rest, "%d %15s %d", &k, what, &n) < 2 || k < 1 || k >= FOLD_MAXSIG) FAIL("line %d: input <signal> alltargets | tick <n> | moves <n>", lineno);
+      if (!strcmp(what, "alltargets")) lv->allSig = k;
+      else if (!strcmp(what, "tick") || !strcmp(what, "moves")) {
+        if (n < 1 || n > 255 || lv->ntimer == FOLD_MAXTIMER) FAIL("line %d: %s <n> (1..255, 8 timers)", lineno, what);
+        FoldTimer *T = &lv->timer[lv->ntimer++]; T->kind = what[0] == 't' ? FT_TICK : FT_MOVES; T->sig = (uint8_t)k; T->n = (uint8_t)n;
+      } else FAIL("line %d: input <signal> alltargets | tick <n> | moves <n>", lineno);
     }
     else if (!strcmp(word, "logic")) {           // logic <out> <and|or|xor|not|latch|count [n]> <in...>
       if (lv->nlogic == FOLD_MAXLOGIC) FAIL("line %d: too many logic pieces", lineno);
       FoldLogic *L = &lv->logic[lv->nlogic]; memset(L, 0, sizeof *L);
       char op[8]; int out, n = 0;
       if (sscanf(rest, "%d %7s %n", &out, op, &n) < 2 || out < 1 || out >= FOLD_MAXSIG) FAIL("line %d: logic <out> <op> <in...>", lineno);
-      static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count" };
-      L->op = 255; for (int k = 0; k < 6; k++) if (!strcmp(op, OPS[k])) L->op = (uint8_t)k;
-      if (L->op == 255) FAIL("line %d: logic op is and / or / xor / not / latch / count", lineno);
+      static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count", "delay" };
+      L->op = 255; for (int k = 0; k < 7; k++) if (!strcmp(op, OPS[k])) L->op = (uint8_t)k;
+      if (L->op == 255) FAIL("line %d: logic op is and / or / xor / not / latch / count / delay", lineno);
       const char *w = rest + n; int v, m;
-      if (L->op == FL_COUNT) { if (sscanf(w, "%d %n", &v, &m) < 1 || v < 1 || v > 255) FAIL("line %d: count <n> <in>", lineno); L->count = (uint8_t)v; w += m; }
+      if (L->op == FL_COUNT || L->op == FL_DELAY) {
+        if (sscanf(w, "%d %n", &v, &m) < 1 || v < 1 || v > (L->op == FL_DELAY ? 8 : 255)) FAIL("line %d: %s <n> <in>", lineno, op);
+        L->count = (uint8_t)v; w += m;
+      }
       while (L->n < 4 && sscanf(w, "%d%n", &v, &m) == 1) { if (v < 1 || v >= FOLD_MAXSIG) FAIL("line %d: signal 1..63", lineno); L->in[L->n++] = (uint8_t)v; w += m; }
       if (!L->n) FAIL("line %d: logic needs inputs", lineno);
       L->out = (uint8_t)out; lv->nlogic++;

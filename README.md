@@ -29,7 +29,8 @@ keeps snapshots of it. See `docs/PLAN.md`.
   gate (worked by buttons / plates), key and lock, player-only grate (`docs/FORMAT.md`; rules tested in
   `tests/tiles.c`, small test levels in `tests/levels/`). The JavaScript web version only has the original tiles.
 - Signals and logic: inputs (buttons, plates, sensors, targets, keys, all targets filled) send signals, logic pieces
-  combine them, outputs follow them (cell moves, gates, brick-look wall gates, teleporters, one-ways). Talking to a tile
+  combine them, outputs follow them (cell moves, gates, brick-look wall gates, teleporters, one-ways, lights). Timers
+  (a tick every n moves; on after n moves, for step limits) and delay pieces (n moves late) make timed puzzles. Talking to a tile
   says what it is and does, worked out from the wiring (never which cell), unless the level gives it its own text.
 - `app/`: the level editor + playtest + VMX window, on a small software renderer (640x480, the same picture on PC
   and the original Xbox). `make app` builds `build/fold` (SDL2 window) and `build/fold_headless` (scripted input,

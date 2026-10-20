@@ -1,0 +1,21 @@
+fold 1
+name TIMER TEST
+# a step-limited level: the gate stays open for your first 12 moves, a light blinks every 2 moves,
+# and a second light comes on 3 moves after you first stand on the sensor
+square 0 0 0  0 1 0  1 0 0
+room 0 f
+########
+#p.....#
+#......#
+#..*...#
+#......#
+#:@.@..#
+#.b..x.#
+########
+signal 0 f 3 3 3
+drive 0 f 1 5 1
+drive 0 f 2 5 2
+drive 0 f 4 5 4
+input 1 moves 12
+input 2 tick 2
+logic 4 delay 3 3
