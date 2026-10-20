@@ -47,6 +47,17 @@ int gfx_text5_w(int scale, const char *s);
 int gfx_badge(int x, int y, const char *label);                         // a pad button badge (A green, B red...); width
 int gfx_hint(int x, int y, const char *label, const char *what);        // badge + words; returns the width
 
+// shapes for icons
+void gfx_disc(int cx, int cy, int r, uint32_t c);
+void gfx_ring(int cx, int cy, int r, int w, uint32_t c);
+void gfx_ellipse(int cx, int cy, int rx, int ry, float angle, uint32_t c);   // filled, turned by angle (radians)
+void gfx_tri2(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t c);    // a filled 2D triangle
+void gfx_thick(int x0, int y0, int x1, int y1, int w, uint32_t c);            // a line w pixels wide
+// a brushed-metal panel (set the texture once): rounded corners where mask has them (1 TL, 2 TR, 4 BR, 8 BL)
+void gfx_metal_texture(const uint8_t *rgb, int w, int h);
+void gfx_metal_panel(int x, int y, int w, int h, int r, int mask);
+void gfx_view_offset(int dx, int dy);                                          // move the 3D picture's centre
+
 Mat4 mat_mul(Mat4 a, Mat4 b);
 Mat4 mat_perspective(float fovy, float aspect, float zn, float zf);
 Mat4 mat_lookat(Vec3 eye, Vec3 at, Vec3 up);

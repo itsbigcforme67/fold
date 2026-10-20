@@ -1,6 +1,6 @@
 // FOLD app without a window: runs a script of pad input and saves screenshots (PPM). For tests; nothing opens on
 // screen.   build/fold_headless [-l levels] script.txt
-// Script: one command a line. Buttons: A B X Y L R START BACK UP DOWN LEFT RIGHT (pressed one frame, then let go a
+// Script: one command a line. Buttons: A B X Y L R START BACK RS UP DOWN LEFT RIGHT (pressed one frame, then let go a
 // frame); "hold <button> <frames>"; "stick <lx> <ly> <frames>"; "rstick <rx> <ry> <frames>"; "wait <frames>";
 // "zoom <ry> <frames>" (BACK + right stick); "load <file>"; "save <file>"; "shot <file.ppm>"; "#" comments.
 #include "app.h"
@@ -16,8 +16,8 @@ static void shot(const char *f) {
   fclose(o);
 }
 static unsigned bit(const char *w) {
-  static const char *names[] = { "UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "BACK" };
-  for (int i = 0; i < 12; i++) if (!strcmp(w, names[i])) return 1u << i;
+  static const char *names[] = { "UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "BACK", "RS" };
+  for (int i = 0; i < 13; i++) if (!strcmp(w, names[i])) return 1u << i;
   return 0;
 }
 static void run(Pad *p, int frames) { for (int i = 0; i < frames; i++) { app_frame(p); } app_draw(); }

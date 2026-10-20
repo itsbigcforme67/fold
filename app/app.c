@@ -6,7 +6,7 @@
 //     the D-pad folds the working plane 90 degrees about the cursor cell's edge that way, wrapping away from you (round
 //     the shape); the cursor moves onto the new plane and the view turns to face it; L / R turn the view 90 degrees, the right stick turns / tilts it freely (with BACK held it zooms); X opens the
 //     room on the side facing you; Y opens the tile's settings (its room move, the button that triggers it, the back
-//     room); START opens the menu.
+//     room); START opens the menu; clicking the right stick shows / hides the VMX in the middle of the screen.
 //   room editor: left stick moves the cell cursor (off an edge it goes into the next room); the D-pad jumps to the
 //     next room that way; A paints the item, B clears to floor, L / R choose the item; doorways on the outer ring are
 //     mirrored into the room beyond; X goes back to the shape view.
@@ -54,7 +54,7 @@ static int rf, rrot, rx = 3, ry = 3, item = 1;
 static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK", "GRATE", "SENSOR", "WALL GATE", "LIGHT" };
 #define NITEMS 18
 // settings / menu
-static int prow, mrow, fileIx, vmxWin = 1, propSq, propsBack = M_SHAPE, trow, tcell, wrow, wfield;
+static int prow, mrow, fileIx, vmxWin = 0, propSq, propsBack = M_SHAPE, trow, tcell, wrow, wfield;
 // playtest
 static FoldLevel PL; static FoldGame G; static int popT, wonT, holdB; static const char *popWord;
 static char talk[FOLD_TEXTLEN * 2]; static int talkOn, talkPage;   // what the tile you talked to says
@@ -321,6 +321,7 @@ static void shape_frame(const Pad *p) {
   }
   if (pressed(p, PAD_Y) && i >= 0) { propSq = i; prow = 0; propsBack = M_SHAPE; mode = M_PROPS; }
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
+  if (pressed(p, PAD_RS)) vmxWin ^= 1;        // right stick click: the VMX pops up in the middle / goes away
 }
 
 // ---- room editor -------------------------------------------------------------------------------------------------
@@ -877,8 +878,19 @@ static void draw_shape(void) {
 // the VMX window: the owner's render of the VMX (assets/vmx_small / vmx_large) with the 64x64 screen in it
 typedef struct { int w, h, sx, sy; uint8_t *px; } Frame;
 static Frame frames[2]; static int framesTried;
+static uint8_t *metalPx;
 static void load_frames(void) {
   framesTried = 1;
+  FILE *mf = fopen("assets/metal.rgb", "rb");   // the brushed metal for panels
+  if (mf) {
+    unsigned char hd[8];
+    if (fread(hd, 1, 8, mf) == 8 && !memcmp(hd, "METL", 4)) {
+      int w = hd[4] | hd[5] << 8, h = hd[6] | hd[7] << 8;
+      metalPx = malloc((size_t)w * h * 3);
+      if (metalPx && fread(metalPx, 3, (size_t)w * h, mf) == (size_t)w * h) gfx_metal_texture(metalPx, w, h);
+    }
+    fclose(mf);
+  }
   const char *names[2] = { "assets/vmx_small.rgba", "assets/vmx_large.rgba" };
   for (int k = 0; k < 2; k++) {
     FILE *f = fopen(names[k], "rb"); if (!f) continue;
@@ -945,6 +957,76 @@ static void draw_room_editor(void) {
   gfx_text5(px0 + 14, py0 + 270, 2, C_HI, ITEMS[item]);
   gfx_hint(px0 + 4, py0 + 312, "L", ""); gfx_hint(px0 + 34, py0 + 312, "R", "PICK A TILE");
 }
+// ---- the level view's layout (the owner's sketch, 2026-10-20): the void, the level's name, a row of tabs, and the
+// controls as pictures on brushed-metal panels in the bottom corners
+static const char *TABS[] = { "LEVEL", "CELL", "WIRING", "TEST", "SAVE", "LOAD" };
+static void tab_row(int current) {
+  const int y0 = 54, y1 = 84, n = 6, W = GW / n;
+  uint32_t line = 0xc8c8c8;
+  gfx_thick(0, y0, GW, y0, 2, line);
+  for (int k = 0; k < n; k++) {
+    int x0 = k * W, x1 = x0 + W;
+    if (k == current) for (int y = y0 + 2; y < y1; y++) { int s = (y - y0) / 3; gfx_rect(x0 + 4 + s, y, W - 10, 1, 0x1f3a18); }
+    if (k) gfx_thick(x0 + 2, y0 + 4, x0 - 8, y1, 2, line);                // the slanted dividers
+    gfx_thick(x0 + (k ? 0 : 4), y1, x1 - 10, y1, 2, line);
+    gfx_text5(x0 + W / 2 - gfx_text5_w(1, TABS[k]) / 2 - 2, y0 + 12, 1, k == current ? 0xe8ffd8 : 0x9aa294, TABS[k]);
+  }
+}
+static void curved_arrow(int cx, int cy, int r, float a0, float a1, uint32_t c) {   // an arc with a head at a1
+  int px = 0, py = 0;
+  for (int i = 0; i <= 16; i++) {
+    float a = a0 + (a1 - a0) * i / 16; int x = cx + (int)(r * cosf(a)), y = cy + (int)(r * sinf(a));
+    if (i) gfx_thick(px, py, x, y, 4, c);
+    px = x; py = y;
+  }
+  float a = a1, dx = -sinf(a) * (a1 > a0 ? 1 : -1), dy = cosf(a) * (a1 > a0 ? 1 : -1);   // along the arc
+  gfx_tri2(px + (int)(dx * 7), py + (int)(dy * 7), px + (int)(cosf(a) * 6), py + (int)(sinf(a) * 6), px - (int)(cosf(a) * 6), py - (int)(sinf(a) * 6), c);
+}
+static void stick_icon(int cx, int cy, int r) {
+  gfx_ring(cx, cy, r, 4, 0x101010); gfx_ring(cx, cy, r * 6 / 10, 3, 0x101010);
+}
+static void level_controls(void) {
+  const uint32_t ink = 0x101010, yel = 0xf2e01c;
+  // bottom left: the stick moves the cursor over the grid
+  gfx_metal_panel(0, 296, 150, 92, 14, 2 | 4);
+  stick_icon(44, 342, 22);
+  gfx_tri2(44, 308, 36, 318, 52, 318, yel); gfx_tri2(44, 376, 36, 366, 52, 366, yel);
+  gfx_tri2(10, 342, 20, 334, 20, 350, yel); gfx_tri2(78, 342, 68, 334, 68, 350, yel);
+  for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) {                // a little grid, the cursor on its middle
+    int x = 92 + i * 17 + (2 - j) * 3, y = 318 + j * 16;
+    gfx_frame(x, y, 14, 13, 0x52c41a); gfx_frame(x + 1, y + 1, 12, 11, 0x52c41a);
+  }
+  { int x = 92 + 17 + 3, y = 318 + 16; uint32_t cy = 0x22d8e0;
+    gfx_rect(x - 2, y - 2, 6, 2, cy); gfx_rect(x - 2, y - 2, 2, 6, cy); gfx_rect(x + 11, y - 2, 6, 2, cy); gfx_rect(x + 15, y - 2, 2, 6, cy);
+    gfx_rect(x - 2, y + 13, 6, 2, cy); gfx_rect(x - 2, y + 9, 2, 6, cy); gfx_rect(x + 11, y + 13, 6, 2, cy); gfx_rect(x + 15, y + 9, 2, 6, cy); }
+  // below it: the D-pad turns the working plane
+  gfx_metal_panel(0, 398, 138, 82, 14, 2);
+  gfx_ring(38, 442, 22, 4, ink);
+  gfx_disc(38, 428, 4, ink); gfx_disc(38, 456, 4, ink); gfx_disc(24, 442, 4, ink); gfx_disc(52, 442, 4, ink);
+  curved_arrow(38, 442, 30, -2.4f, -1.0f, yel); curved_arrow(38, 442, 30, 0.8f, 2.2f, yel);
+  { int x = 82, y = 416;                                                    // three planes crossing
+    gfx_frame(x + 8, y + 2, 34, 40, 0xe02020); gfx_frame(x + 4, y + 6, 34, 38, 0x2040e0);
+    gfx_thick(x - 2, y + 26, x + 22, y + 18, 2, 0x52c41a); gfx_thick(x + 22, y + 18, x + 50, y + 26, 2, 0x52c41a);
+    gfx_thick(x + 50, y + 26, x + 24, y + 34, 2, 0x52c41a); gfx_thick(x + 24, y + 34, x - 2, y + 26, 2, 0x52c41a); }
+  // bottom right: the face buttons, Duke-style (Y X B A)
+  gfx_metal_panel(GW - 128, 250, 128, 142, 14, 1 | 8);
+  struct { int x, y; uint32_t c; const char *l; } fb[4] = { { GW - 80, 286, 0xe8d020, "Y" }, { GW - 98, 330, 0x2050e0, "X" },
+                                                            { GW - 36, 322, 0xe02828, "B" }, { GW - 58, 364, 0x52d020, "A" } };
+  for (int k = 0; k < 4; k++) {
+    gfx_ellipse(fb[k].x, fb[k].y, 10, 15, -0.35f, ink);
+    gfx_ellipse(fb[k].x, fb[k].y, 8, 13, -0.35f, fb[k].c);
+    gfx_text5(fb[k].x - 2, fb[k].y - 3, 1, ink, fb[k].l);
+  }
+  // below it: the camera turns with the right stick (and L / R)
+  gfx_metal_panel(GW - 168, 400, 168, 80, 14, 1);
+  { int x = GW - 156, y = 412;                                             // a film camera
+    gfx_disc(x + 14, y + 10, 9, ink); gfx_disc(x + 14, y + 10, 7, 0xa8acb0); gfx_disc(x + 36, y + 10, 9, ink); gfx_disc(x + 36, y + 10, 7, 0xa8acb0);
+    gfx_frame(x + 6, y + 22, 40, 20, ink); gfx_frame(x + 7, y + 23, 38, 18, ink);
+    gfx_tri2(x + 6, y + 32, x - 6, y + 22, x - 6, y + 46, ink); gfx_thick(x + 26, y + 42, x + 26, y + 60, 3, ink); }
+  gfx_tri2(GW - 92, 440, GW - 80, 432, GW - 80, 448, yel); gfx_rect(GW - 80, 437, 10, 6, yel);   // "turns"
+  stick_icon(GW - 38, 440, 20);
+  curved_arrow(GW - 38, 440, 28, -2.2f, -0.9f, yel); curved_arrow(GW - 38, 440, 28, 0.9f, 2.2f, yel);
+}
 static void top_bar(const char *mode) {
   gfx_dim(0, 0, GW, 30, 0.55f); gfx_rect(0, 30, GW, 1, 0x2f5a24);
   gfx_text5(12, 8, 2, C_HI, "FOLD");
@@ -981,18 +1063,22 @@ void app_draw(void) {
     const char *h[] = { "STICK", "MOVE", "A", "PLACE", "B", "FLOOR", "DPAD", "NEXT CELL", "Y", "SETTINGS", "X", "LEVEL" };
     if (mode == M_ROOM) hints(h, 6);
   } else {
+    if (!framesTried) load_frames();
+    gfx_clear(0x000000);                      // the void
+    gfx_view_offset(0, 40);
     draw_shape();
-    top_bar("LEVEL");
-    snprintf(s, sizeof s, "%d CELLS", L.nsq); gfx_text5(12, 40, 1, C_DIM, s);
+    gfx_view_offset(0, 0);
+    gfx_text5(12, 20, 1, 0x6f786a, L.name);   // the top is left empty (the sketch's "void"); the name, small
+    tab_row(mode == M_WIRE ? 2 : mode == M_MENU ? 3 : 0);
+    snprintf(s, sizeof s, "%d CELLS", L.nsq); gfx_text5(GW - 12 - gfx_text5_w(1, s), 92, 1, 0x6f786a, s);
+    if (mode == M_SHAPE) level_controls();
     if (vmxWin) {                             // the VMX window: the cell under the cursor, as on the handheld
       static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
       int i = find_sq(co, ce1, ce2);
       if (i >= 0) { int f = sq_face_toward_eye(i); if (sides[i] >> (f & 1) & 1) vmx_room(b, L.wall, L.target, L.box, L.btn, L.kind, L.aux, f, 0, L.player, &S, 0); else vmx_text(b, 12, 28, "NO ROOM"); }
       else vmx_text(b, 4, 28, "EMPTY SPACE");
-      draw_vmx(GW - 64 * 2 - 36, GH - 64 * 2 - 50, 2, b);
+      draw_vmx(GW / 2 - 96, GH / 2 - 96 + 20, 3, b);   // in the middle of the screen
     }
-    const char *h[] = { "STICK", "MOVE", "A", "PLACE", "B", "REMOVE", "DPAD", "FOLD", "L R", "TURN", "X", "CELL", "Y", "SETTINGS", "START", "MENU" };
-    if (mode == M_SHAPE) hints(h, 8);
   }
   if (mode == M_PROPS) {
     int i = propSq, rows[8], nr = prop_rows(i, rows), h = 50 + nr * 26 + 30;

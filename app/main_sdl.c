@@ -1,5 +1,5 @@
 // FOLD app in a window (SDL2): game controller or keyboard. Keyboard: WASD = left stick, IJKL = right stick,
-// arrows = D-pad, Z/Enter = A, X = B, C = X, V = Y, Q = L, E = R, Esc = START, Tab = BACK.
+// arrows = D-pad, Z/Enter = A, X = B, C = X, V = Y, Q = L, E = R, Esc = START, Tab = BACK, F = right stick click.
 #include "app.h"
 #include "gfx.h"
 #include <SDL.h>
@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     if (k[SDL_SCANCODE_Z] || k[SDL_SCANCODE_RETURN]) p.held |= PAD_A; if (k[SDL_SCANCODE_X]) p.held |= PAD_B;
     if (k[SDL_SCANCODE_C]) p.held |= PAD_X; if (k[SDL_SCANCODE_V]) p.held |= PAD_Y;
     if (k[SDL_SCANCODE_Q]) p.held |= PAD_L; if (k[SDL_SCANCODE_E]) p.held |= PAD_R;
-    if (k[SDL_SCANCODE_ESCAPE]) p.held |= PAD_START; if (k[SDL_SCANCODE_TAB]) p.held |= PAD_BACK;
+    if (k[SDL_SCANCODE_ESCAPE]) p.held |= PAD_START; if (k[SDL_SCANCODE_TAB]) p.held |= PAD_BACK; if (k[SDL_SCANCODE_F]) p.held |= PAD_RS;
     if (pad) {
       float ax[4]; SDL_GameControllerAxis A[4] = { SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY, SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY };
       for (int i = 0; i < 4; i++) { ax[i] = SDL_GameControllerGetAxis(pad, A[i]) / 32767.0f; if (ax[i] > -0.25f && ax[i] < 0.25f) ax[i] = 0; }
@@ -38,7 +38,8 @@ int main(int argc, char **argv) {
         { SDL_CONTROLLER_BUTTON_DPAD_UP, PAD_UP }, { SDL_CONTROLLER_BUTTON_DPAD_DOWN, PAD_DOWN }, { SDL_CONTROLLER_BUTTON_DPAD_LEFT, PAD_LEFT },
         { SDL_CONTROLLER_BUTTON_DPAD_RIGHT, PAD_RIGHT }, { SDL_CONTROLLER_BUTTON_A, PAD_A }, { SDL_CONTROLLER_BUTTON_B, PAD_B },
         { SDL_CONTROLLER_BUTTON_X, PAD_X }, { SDL_CONTROLLER_BUTTON_Y, PAD_Y }, { SDL_CONTROLLER_BUTTON_LEFTSHOULDER, PAD_L },
-        { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PAD_R }, { SDL_CONTROLLER_BUTTON_START, PAD_START }, { SDL_CONTROLLER_BUTTON_BACK, PAD_BACK } };
+        { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PAD_R }, { SDL_CONTROLLER_BUTTON_START, PAD_START }, { SDL_CONTROLLER_BUTTON_BACK, PAD_BACK },
+        { SDL_CONTROLLER_BUTTON_RIGHTSTICK, PAD_RS } };
       for (unsigned i = 0; i < sizeof M / sizeof M[0]; i++) if (SDL_GameControllerGetButton(pad, M[i].b)) p.held |= M[i].bit;
       // the Duke's black / white buttons and triggers come through as the shoulders on most drivers
       if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 16000) p.held |= PAD_L;

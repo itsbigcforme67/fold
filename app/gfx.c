@@ -8,6 +8,8 @@ uint32_t gfx_px[GW * GH];
 static float zbuf[GW * GH];
 static Mat4 VP;
 static uint32_t fogC; static float fogS = 1e9f, fogE = 2e9f;
+static int vofsX, vofsY;
+static const uint8_t *metal; static int metalW, metalH;
 static uint8_t smask[GW * GH];
 static uint32_t mix(uint32_t a, uint32_t b, float t) {   // a towards b by t
   if (t <= 0) return a; if (t >= 1) return b;
@@ -185,7 +187,7 @@ static V4 xform(Vec3 p) {
 int gfx_project(Vec3 p, float *sx, float *sy) {
   V4 c = xform(p);
   if (c.w < 0.01f) return 0;
-  *sx = (c.x / c.w * 0.5f + 0.5f) * GW; *sy = (0.5f - c.y / c.w * 0.5f) * GH;
+  *sx = (c.x / c.w * 0.5f + 0.5f) * GW + vofsX; *sy = (0.5f - c.y / c.w * 0.5f) * GH + vofsY;
   return 1;
 }
 
@@ -201,7 +203,7 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
   const CV *v[3] = { a, b, c };
   for (int i = 0; i < 3; i++) {
     float iw = 1.0f / v[i]->c.w;
-    X[i] = (v[i]->c.x * iw * 0.5f + 0.5f) * GW; Y[i] = (0.5f - v[i]->c.y * iw * 0.5f) * GH;
+    X[i] = (v[i]->c.x * iw * 0.5f + 0.5f) * GW + vofsX; Y[i] = (0.5f - v[i]->c.y * iw * 0.5f) * GH + vofsY;
     IW[i] = iw; UW[i] = v[i]->u * iw; VW[i] = v[i]->v * iw; Z[i] = v[i]->c.w;
   }
   float area = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
@@ -267,8 +269,8 @@ void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick) {
   if (A.w < NEAR && B.w < NEAR) return;
   if (A.w < NEAR) { float k = (NEAR - A.w) / (B.w - A.w); A.x += (B.x - A.x) * k; A.y += (B.y - A.y) * k; A.w = NEAR; }
   if (B.w < NEAR) { float k = (NEAR - B.w) / (A.w - B.w); B.x += (A.x - B.x) * k; B.y += (A.y - B.y) * k; B.w = NEAR; }
-  float x0 = (A.x / A.w * 0.5f + 0.5f) * GW, y0 = (0.5f - A.y / A.w * 0.5f) * GH;
-  float x1 = (B.x / B.w * 0.5f + 0.5f) * GW, y1 = (0.5f - B.y / B.w * 0.5f) * GH;
+  float x0 = (A.x / A.w * 0.5f + 0.5f) * GW + vofsX, y0 = (0.5f - A.y / A.w * 0.5f) * GH + vofsY;
+  float x1 = (B.x / B.w * 0.5f + 0.5f) * GW + vofsX, y1 = (0.5f - B.y / B.w * 0.5f) * GH + vofsY;
   int steps = (int)fmaxf(fabsf(x1 - x0), fabsf(y1 - y0)) + 1;
   if (steps > 4000) steps = 4000;
   for (int i = 0; i <= steps; i++) {
@@ -280,5 +282,51 @@ void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick) {
       int q = yi * GW + xi;
       if (z <= zbuf[q] * 1.002f + 0.002f) gfx_px[q] = fogged(c, z);
     }
+  }
+}
+
+// ---- shapes for icons ---------------------------------------------------------------------------------------------
+void gfx_view_offset(int dx, int dy) { vofsX = dx; vofsY = dy; }
+void gfx_disc(int cx, int cy, int r, uint32_t c) {
+  for (int y = -r; y <= r; y++) for (int x = -r; x <= r; x++) if (x * x + y * y <= r * r + r) { int X = cx + x, Y = cy + y; if (X >= 0 && Y >= 0 && X < GW && Y < GH) gfx_px[Y * GW + X] = c; }
+}
+void gfx_ring(int cx, int cy, int r, int w, uint32_t c) {
+  int ri = r - w;
+  for (int y = -r; y <= r; y++) for (int x = -r; x <= r; x++) { int d = x * x + y * y; if (d <= r * r + r && d > ri * ri + ri) { int X = cx + x, Y = cy + y; if (X >= 0 && Y >= 0 && X < GW && Y < GH) gfx_px[Y * GW + X] = c; } }
+}
+void gfx_ellipse(int cx, int cy, int rx, int ry, float a, uint32_t c) {
+  int r = rx > ry ? rx : ry; float ca = cosf(a), sa = sinf(a);
+  for (int y = -r; y <= r; y++) for (int x = -r; x <= r; x++) {
+    float u = (x * ca + y * sa) / rx, v = (-x * sa + y * ca) / ry;
+    if (u * u + v * v <= 1) { int X = cx + x, Y = cy + y; if (X >= 0 && Y >= 0 && X < GW && Y < GH) gfx_px[Y * GW + X] = c; }
+  }
+}
+void gfx_tri2(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t c) {
+  int minx = x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2), maxx = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
+  int miny = y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2), maxy = y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2);
+  for (int y = miny; y <= maxy; y++) for (int x = minx; x <= maxx; x++) {
+    int a = (x1 - x0) * (y - y0) - (y1 - y0) * (x - x0), b = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1), d = (x0 - x2) * (y - y2) - (y0 - y2) * (x - x2);
+    if ((a >= 0 && b >= 0 && d >= 0) || (a <= 0 && b <= 0 && d <= 0)) if (x >= 0 && y >= 0 && x < GW && y < GH) gfx_px[y * GW + x] = c;
+  }
+}
+void gfx_thick(int x0, int y0, int x1, int y1, int w, uint32_t c) {
+  float dx = (float)(x1 - x0), dy = (float)(y1 - y0), l = sqrtf(dx * dx + dy * dy); int n = (int)l + 1;
+  for (int i = 0; i <= n; i++) { int x = x0 + (int)(dx * i / n), y = y0 + (int)(dy * i / n); gfx_disc(x, y, w / 2, c); }
+}
+void gfx_metal_texture(const uint8_t *rgb, int w, int h) { metal = rgb; metalW = w; metalH = h; }
+void gfx_metal_panel(int x, int y, int w, int h, int r, int mask) {
+  gfx_dim(x + 5, y + 6, w, h, 0.5f);                                          // its shadow
+  for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {
+    int cx = -1, cy = -1;                                                      // inside a rounded corner?
+    if (i < r && j < r && (mask & 1)) { cx = r; cy = r; } else if (i >= w - r && j < r && (mask & 2)) { cx = w - r - 1; cy = r; }
+    else if (i >= w - r && j >= h - r && (mask & 4)) { cx = w - r - 1; cy = h - r - 1; } else if (i < r && j >= h - r && (mask & 8)) { cx = r; cy = h - r - 1; }
+    if (cx >= 0 && (i - cx) * (i - cx) + (j - cy) * (j - cy) > r * r) continue;
+    int X = x + i, Y = y + j; if (X < 0 || Y < 0 || X >= GW || Y >= GH) continue;
+    uint32_t col = 0xc8ccd0;
+    if (metal) { const uint8_t *q = metal + 3 * (((j % metalH) * metalW) + (i % metalW)); col = (uint32_t)q[0] << 16 | q[1] << 8 | q[2]; }
+    float k = 1.0f;                                                            // a little bevel: light top, dark bottom
+    if (j < 2) k = 1.12f; else if (j >= h - 2) k = 0.7f; else if (i < 2 || i >= w - 2) k = 0.85f;
+    int rr = (int)(((col >> 16) & 255) * k), gg = (int)(((col >> 8) & 255) * k), bb = (int)((col & 255) * k);
+    gfx_px[Y * GW + X] = (uint32_t)((rr > 255 ? 255 : rr) << 16 | (gg > 255 ? 255 : gg) << 8 | (bb > 255 ? 255 : bb));
   }
 }

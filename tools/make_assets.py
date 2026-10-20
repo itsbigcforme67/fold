@@ -1,7 +1,8 @@
 # FOLD app assets: the VMX window frame, cut from the owner's render of the VMX (XMU GADGET/out/web/vmx_front.png),
 # at two sizes where a VMX pixel is a whole number of screen pixels (2 and 3), the device's top part (its screen).
 # Each file: "VMXF", w, h, screen x, screen y (u16 little-endian), then w*h RGBA.
-#   python3 tools/make_assets.py [render.png]
+# Also the brushed-metal panel texture (from the owner's photo): "METL", w, h (u16), then w*h RGB.
+#   python3 tools/make_assets.py [render.png] [metal.jpg]
 import struct, sys, pathlib
 from PIL import Image
 src = sys.argv[1] if len(sys.argv) > 1 else str(pathlib.Path(__file__).resolve().parents[3] / "XMU GADGET/out/web/vmx_front.png")
@@ -19,3 +20,10 @@ for name, scale, extra, side in (("vmx_small", 2, 16, 26), ("vmx_large", 3, 26, 
     data = struct.pack("<4s4H", b"VMXF", big.width, big.height, sx, sy) + big.tobytes()
     (out / (name + ".rgba")).write_bytes(data)
     print(name, big.size, "screen at", (sx, sy))
+
+metal = sys.argv[2] if len(sys.argv) > 2 else None
+if metal:
+    m = Image.open(metal).convert("RGB")
+    m = m.resize((m.width // 2, m.height // 2), Image.LANCZOS)          # 270 x 180: tiled across the panels
+    (out / "metal.rgb").write_bytes(struct.pack("<4s2H", b"METL", m.width, m.height) + m.tobytes())
+    print("metal", m.size)

@@ -35,7 +35,7 @@ keeps snapshots of it. See `docs/PLAN.md`.
 - `app/`: the level editor + playtest + VMX window, on a small software renderer (640x480, the same picture on PC
   and the original Xbox). `make app` builds `build/fold` (SDL2 window) and `build/fold_headless` (scripted input,
   screenshots; used for testing). Run `build/fold levels`. Pad or keyboard (WASD stick, arrows D-pad, Z A, X B, C X,
-  V Y, Q L, E R, Esc START).
+  V Y, Q L, E R, Esc START, F right stick click).
 - Next: the original Xbox build of the app (nxdk, its SDL2), real-3D play, then the VMX link. See `docs/PLAN.md`.
 
 ## Editor controls
@@ -44,7 +44,8 @@ Level view: left stick moves the cursor over the working plane; A places a cell 
 folds the working plane 90 degrees about the cursor's edge, wrapping away from you round the shape, and the view turns
 to face the new plane; L / R turn the view 90 degrees, the right stick turns and tilts it (BACK + right stick zooms);
 X opens the cell on the side facing you; Y opens the cell's settings (its move, the button that triggers it, its back
-side); START opens the menu (playtest, VMX window, save, load, new level).
+side); START opens the menu (playtest, VMX window, save, load, new level); clicking the right stick pops the VMX up in the
+middle of the screen (the cell under the cursor) or hides it.
 
 Cell editor: left stick moves the tile cursor (off an edge it carries on into the next cell); the D-pad jumps to the
 next cell; A places the tile (L / R pick), B clears to floor; a doorway on the outer ring opens in the cell beyond too;
