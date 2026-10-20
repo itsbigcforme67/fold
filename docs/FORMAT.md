@@ -25,7 +25,8 @@ Tiles: `#` wall, `.` floor, `x` target, `b` box, `B` box on a target, `p` player
 (entered only heading that way, in the room's own frame; it turns with its cell and mirrors when the cell flips),
 `_` pit (you can't walk in; a box pushed or sliding in fills it and it becomes floor), `1`-`9` teleporter pad
 (stepping on one puts you on the other pad with the same digit, same heading; a pushed box goes across too if the
-far pad is free).
+far pad is free), `=` pressure plate (a button that holds only while a box is on it: when the box leaves, its moves
+undo; numbered with the buttons).
 
 A box or the player starting on any other kind of tile: `box <square> <f|b> <x> <y>` / `player <square> <f|b> <x> <y>`
 after the room block. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.

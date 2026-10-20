@@ -17,6 +17,7 @@ static const char *ICE[7] = { ".......", ".#.....", "..#....", ".......", "....#
 static const char *ONEWAY[7] = { "...#...", "..###..", ".#####.", "#######", "..###..", "..###..", "......." };   // up
 static const char *PIT[7] = { "#######", "#.#.#.#", "##.#.##", "#.#.#.#", "##.#.##", "#.#.#.#", "#######" };
 static const char *TELE[7] = { ".#####.", "#.....#", "#.###.#", "#.#.#.#", "#.###.#", "#.....#", ".#####." };
+static const char *PLATE[7] = { ".......", ".#####.", ".#####.", ".##.##.", ".#####.", ".#####.", "......." };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -55,7 +56,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }
-    if (btn[c] && !hasBox && c != player) sprite(b, x, y, BUTTON);
+    if (btn[c] && !hasBox && c != player) sprite(b, x, y, kind[c] == FK_PLATE ? PLATE : BUTTON);
     if (target[c] && !hasBox) sprite(b, x, y, TARGET);
     if (hasBox) sprite(b, x, y, target[c] ? VMX_BOXON : VMX_BOX);
     if (c == player) sprite(b, x, y, VMX_MAN);

@@ -64,6 +64,13 @@ int main(void) {
        "room 0 f\n########\n#......#\n#......#\n#......#\n#pb2...#\n#......#\n#......#\n########\n"
        "room 1 f\n########\n#......#\n#......#\n#......#\n#...2..#\n#......#\n#......#\n########\n");
   moves("r"); expect("teleporter: a pushed box crosses to a free pad", CELL(0, 2, 4), (int[]){ CELL(2, 4, 4) }, 1);
+  // ---- pressure plate: a plate turns the other cell while a box is on it ----
+  load("fold 1\nname T5\nsquare 0 0 0  1 0 0  0 1 0\nsquare 1 0 0  1 0 0  0 1 0\n"
+       "room 0 f\n########\n#......#\n#.pb=..#\n#......#\n#......#\n#......#\n#......#\n########\n"
+       "room 1 f\n########\n#......#\n#......#\n#......#\n#......#\n#......#\n#......#\n########\nlink 1 r1\n");
+  moves("r"); tests++; { int ok = g.turns[1] == 1; printf("%-44s %s\n", "plate: a box on it turns the cell", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  moves("r"); tests++; { int ok = g.turns[1] == 0; printf("%-44s %s\n", "plate: pushed off, the cell turns back", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  expect("plate: undo through press and release", CELL(0, 4, 2), (int[]){ CELL(0, 5, 2) }, 1);
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

@@ -178,12 +178,29 @@ static void turn_square(FoldGame *g, int i) {
   }
   set(g, A_TURNS, i, (g->turns[i] + 1) & 3);
 }
-static int apply_act(FoldGame *g, const FoldAct *a) {
+static int apply_act(FoldGame *g, const FoldAct *a, int back) {   // back: the opposite move (a turn goes back)
   switch (a->kind) {
     case 'f': flip_square(g, a->sq); return FOLD_FLIPPED;
-    case 'r': turn_square(g, a->sq); return FOLD_TURNED;
+    case 'r': for (int k = 0; k < (back ? 3 : 1); k++) turn_square(g, a->sq); return FOLD_TURNED;
     default: set(g, A_MOVED, a->sq, g->moved[a->sq] ^ 1); rebuild(g); return a->kind == 's' ? FOLD_SHIFTED : FOLD_HINGED;
   }
+}
+// where tile c goes when move a happens (or is undone): a flip / turn carries the tiles of its cell
+static int follow(int c, const FoldAct *a, int back) {
+  if ((c / NN) >> 1 != a->sq) return c;
+  if (a->kind == 'f') return twin(c);
+  if (a->kind == 'r') for (int k = 0; k < (back ? 3 : 1); k++) c = rot_cell(c);
+  return c;                                   // a shift / hinge moves the cell, not its tiles
+}
+// button / plate b's moves, in order (or undone, last first); *track follows a tile through them
+static int trigger(FoldGame *g, int b, int back, int *track) {
+  int r = 0, n = g->lv->nact[b];
+  for (int k = 0; k < n; k++) {
+    const FoldAct *a = &g->lv->act[b][back ? n - 1 - k : k];
+    r |= apply_act(g, a, back);
+    if (*track >= 0) *track = follow(*track, a, back);
+  }
+  return r;
 }
 
 // ---- game --------------------------------------------------------------------------------------------------------
@@ -234,6 +251,7 @@ int fold_move(FoldGame *g, int sd) {
   FoldUndo *u = &g->undo[g->nundo++];
   u->p = (int16_t)g->p; u->camf = (uint8_t)g->camf; u->camrot = (uint8_t)g->camrot; u->pushed = c2 >= 0; u->j = g->nj;
   int r = FOLD_MOVED;
+  int offPlate = c2 >= 0 && g->kind[c1] == FK_PLATE && g->btn[c1] ? g->btn[c1] : 0;   // the box is leaving a plate
   if (c2 >= 0) {                              // the push: the box may slide on ice, then press what it stops on
     set(g, A_BOX, c1, 0); set(g, A_BOX, c2, 1); g->pushes++; r |= FOLD_PUSHED;
     g->p = c1;                                 // you are behind it now (so it can't slide back through you)
@@ -255,10 +273,8 @@ int fold_move(FoldGame *g, int sd) {
   }
   g->p = c; g->moves++;
   if (c / NN != g->camf) { g->camf = c / NN; g->camrot = (hd - sd) & 3; r |= FOLD_CROSSED; }
-  if (c2 >= 0 && g->btn[c2]) {
-    int b = g->btn[c2] - 1;
-    for (int k = 0; k < g->lv->nact[b]; k++) r |= apply_act(g, &g->lv->act[b][k]);
-  }
+  if (offPlate) r |= trigger(g, offPlate - 1, 1, &c2);   // a plate the box left lets go: its moves undo
+  if (c2 >= 0 && g->btn[c2]) r |= trigger(g, g->btn[c2] - 1, 0, &c2);   // a button / plate it landed on
   return r;
 }
 int fold_undo(FoldGame *g) {
@@ -312,7 +328,8 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<_123456789", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_123456789=", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch == '=') { if (lv->nbtn == FOLD_MAXBTN) FAIL("line %d: too many buttons", lineno); lv->kind[c] = FK_PLATE; lv->btn[c] = (uint8_t)++lv->nbtn; }
         if (ch >= '1' && ch <= '9') { lv->kind[c] = FK_TELE; lv->aux[c] = (uint8_t)(ch - '0'); }
         if (ch == '_') lv->kind[c] = FK_PIT;
         if (ch == '~') lv->kind[c] = FK_ICE;
