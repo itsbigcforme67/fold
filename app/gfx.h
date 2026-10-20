@@ -57,6 +57,8 @@ void gfx_thick(int x0, int y0, int x1, int y1, int w, uint32_t c);            //
 void gfx_metal_texture(const uint8_t *rgb, int w, int h);
 void gfx_metal_panel(int x, int y, int w, int h, int r, int mask);
 void gfx_view_offset(int dx, int dy);                                          // move the 3D picture's centre
+void gfx_clip(int x, int y, int w, int h);                                     // 3D drawing only inside (w 0 = whole screen)
+void gfx_zclear_rect(int x, int y, int w, int h);
 
 Mat4 mat_mul(Mat4 a, Mat4 b);
 Mat4 mat_perspective(float fovy, float aspect, float zn, float zf);

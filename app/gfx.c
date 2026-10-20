@@ -8,7 +8,7 @@ uint32_t gfx_px[GW * GH];
 static float zbuf[GW * GH];
 static Mat4 VP;
 static uint32_t fogC; static float fogS = 1e9f, fogE = 2e9f;
-static int vofsX, vofsY;
+static int vofsX, vofsY, clx0, cly0, clx1 = GW - 1, cly1 = GH - 1;
 static const uint8_t *metal; static int metalW, metalH;
 static uint8_t smask[GW * GH];
 static uint32_t mix(uint32_t a, uint32_t b, float t) {   // a towards b by t
@@ -210,7 +210,7 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
   if (fabsf(area) < 1e-6f) return;
   int x0 = (int)floorf(fminf(X[0], fminf(X[1], X[2]))), x1 = (int)ceilf(fmaxf(X[0], fmaxf(X[1], X[2])));
   int y0 = (int)floorf(fminf(Y[0], fminf(Y[1], Y[2]))), y1 = (int)ceilf(fmaxf(Y[0], fmaxf(Y[1], Y[2])));
-  if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > GW - 1) x1 = GW - 1; if (y1 > GH - 1) y1 = GH - 1;
+  if (x0 < clx0) x0 = clx0; if (y0 < cly0) y0 = cly0; if (x1 > clx1) x1 = clx1; if (y1 > cly1) y1 = cly1;
   uint32_t flat = shade_c(colour, shade);
   for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++) {
     float px = x + 0.5f, py = y + 0.5f;
@@ -278,7 +278,7 @@ void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick) {
     float iw = (1 - k) / A.w + k / B.w, z = 1.0f / iw;          // perspective-correct depth
     for (int dy = 0; dy < thick; dy++) for (int dx = 0; dx < thick; dx++) {
       int xi = (int)x + dx - thick / 2, yi = (int)y + dy - thick / 2;
-      if (xi < 0 || yi < 0 || xi >= GW || yi >= GH) continue;
+      if (xi < clx0 || yi < cly0 || xi > clx1 || yi > cly1) continue;
       int q = yi * GW + xi;
       if (z <= zbuf[q] * 1.002f + 0.002f) gfx_px[q] = fogged(c, z);
     }
@@ -329,4 +329,11 @@ void gfx_metal_panel(int x, int y, int w, int h, int r, int mask) {
     int rr = (int)(((col >> 16) & 255) * k), gg = (int)(((col >> 8) & 255) * k), bb = (int)((col & 255) * k);
     gfx_px[Y * GW + X] = (uint32_t)((rr > 255 ? 255 : rr) << 16 | (gg > 255 ? 255 : gg) << 8 | (bb > 255 ? 255 : bb));
   }
+}
+void gfx_clip(int x, int y, int w, int h) {
+  if (w <= 0) { clx0 = cly0 = 0; clx1 = GW - 1; cly1 = GH - 1; return; }
+  clx0 = x < 0 ? 0 : x; cly0 = y < 0 ? 0 : y; clx1 = x + w - 1 > GW - 1 ? GW - 1 : x + w - 1; cly1 = y + h - 1 > GH - 1 ? GH - 1 : y + h - 1;
+}
+void gfx_zclear_rect(int x, int y, int w, int h) {
+  for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) for (int i = x < 0 ? 0 : x; i < x + w && i < GW; i++) zbuf[j * GW + i] = 1e30f;
 }
