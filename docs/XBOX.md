@@ -24,7 +24,7 @@ repo's `xbox_files/` (never copied here; `XBOX_FILES=dir` for another place) and
 
 ## Install on the real Xbox
 
-    tools/xbox_upload.sh        # FTP to E:\Games\FOLD; the owner types the login (XBOX_IP=..., default 192.168.1.116)
+    tools/xbox_upload.sh        # FTP to E:\Games\FOLD; the owner types the login (finds the console at .115 or .116; XBOX_IP=... to name it)
 
 Then Play Games from Hard Drive -> FOLD. Levels are read from and saved to `E:\Games\FOLD\levels`.
 
