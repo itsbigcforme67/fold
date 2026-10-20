@@ -1,4 +1,6 @@
-// FOLD app: the level editor (shape view, room editor, tile settings), playtesting in the VMX window, and the menu.
+// FOLD app: the level editor (level view, cell editor, cell settings), playtesting in the VMX window, and the menu.
+// Words (owner, 2026-10-20): LEVEL = the whole level; CELL = one room square (a "square" / face pair in the core);
+// TILE = one element inside a cell (a wall, floor, box, target, button, the player; a "cell" in the core's arrays).
 // Controls (the owner's design, 2026-10-20):
 //   shape view: left stick moves the cursor cell on the working plane; A places a tile (facing you), B removes it;
 //     the D-pad folds the working plane 90 degrees about the cursor cell's edge that way, wrapping away from you (round
@@ -75,13 +77,13 @@ static void resurface(void) { fold_surface(&S, L.sq, L.nsq); }
 static void new_level(void) {
   memset(&L, 0, sizeof L); memset(L.wall, 1, sizeof L.wall); L.player = -1;
   memset(sides, 0, sizeof sides); memset(func, 0, sizeof func); memset(trig, 0, sizeof trig);
-  strcpy(L.name, "NEW SHAPE"); path[0] = 0;
+  strcpy(L.name, "NEW LEVEL"); path[0] = 0;
   int o[3] = { 0, 0, 0 }; memcpy(co, o, sizeof co);
   ce1[0] = 1; ce1[1] = ce1[2] = 0; ce2[1] = 1; ce2[0] = ce2[2] = 0;
   resurface();
 }
 static int add_sq(int nc[3]) {           // a tile at the cursor, its front facing nc
-  if (L.nsq == FOLD_MAXSQ) { say("TOO MANY TILES"); return -1; }
+  if (L.nsq == FOLD_MAXSQ) { say("TOO MANY CELLS"); return -1; }
   FoldSquare q; memset(&q, 0, sizeof q);
   const int *u = ce1, *v = ce2;
   int c0 = v[1] * u[2] - v[2] * u[1], c1 = v[2] * u[0] - v[0] * u[2], c2 = v[0] * u[1] - v[1] * u[0];   // v x u
@@ -263,10 +265,10 @@ static void shape_frame(const Pad *p) {
   if (pitch > 1.45f) pitch = 1.45f; if (pitch < -1.45f) pitch = -1.45f;
   int i = find_sq(co, ce1, ce2);
   if (pressed(p, PAD_A)) {
-    if (i >= 0) say("A TILE IS ALREADY THERE");
-    else { int nc[3]; facing_normal(nc); if (add_sq(nc) >= 0) say("TILE PLACED"); }
+    if (i >= 0) say("A CELL IS ALREADY THERE");
+    else { int nc[3]; facing_normal(nc); if (add_sq(nc) >= 0) say("CELL PLACED"); }
   }
-  if (pressed(p, PAD_B) && i >= 0) { remove_sq(i); say("TILE REMOVED"); }
+  if (pressed(p, PAD_B) && i >= 0) { remove_sq(i); say("CELL REMOVED"); }
   if (pressed(p, PAD_X) && i >= 0) {
     rf = sq_face_toward_eye(i);
     if (!(sides[i] >> (rf & 1) & 1)) make_room(rf);
@@ -292,7 +294,7 @@ static int go_room(int c, int sd) {           // step from cell c in screen dire
 }
 static void paint(int c, int what) {
   int x = c % N, y = (c / N) % N, edge = x == 0 || y == 0 || x == N - 1 || y == N - 1, corner = (x == 0 || x == N - 1) && (y == 0 || y == N - 1);
-  if (corner && what != 0) { say("ROOM CORNERS STAY WALL"); return; }
+  if (corner && what != 0) { say("CORNERS STAY WALL"); return; }
   switch (what) {
     case 0: if (c == L.player) { say("MOVE THE PLAYER FIRST"); return; } L.wall[c] = 1; L.box[c] = L.target[c] = L.btn[c] = 0; break;
     case 1: L.wall[c] = 0; L.box[c] = L.target[c] = L.btn[c] = 0; break;
@@ -315,7 +317,7 @@ static void room_frame(const Pad *p) {
   }
   if (dpad_rep(p, &d)) {                      // jump a whole room: from the edge cell that way
     int sd = PADDIR[d], ex = sd == 1 ? N - 1 : sd == 3 ? 0 : rx, ey = sd == 2 ? N - 1 : sd == 0 ? 0 : ry;
-    if (!go_room(screen_to_cell(ex, ey), sd)) say("NO ROOM THAT WAY");
+    if (!go_room(screen_to_cell(ex, ey), sd)) say("NO CELL THAT WAY");
   }
   if (pressed(p, PAD_L)) item = (item + 5) % 6;
   if (pressed(p, PAD_R)) item = (item + 1) % 6;
@@ -365,7 +367,7 @@ static void props_frame(const Pad *p) {
       else if (prow == 2) { if (sides[i] & 2) { sides[i] &= ~2; clear_face(2 * i + 1); } else make_room(2 * i + 1); }
     }
   }
-  if (pressed(p, PAD_A) && prow == 3) { remove_sq(i); mode = M_SHAPE; say("TILE REMOVED"); return; }
+  if (pressed(p, PAD_A) && prow == 3) { remove_sq(i); mode = M_SHAPE; say("CELL REMOVED"); return; }
   if (prow == 2 && !(sides[i] & 2) && propsBack == M_ROOM && rf == 2 * i + 1) propsBack = M_SHAPE;   // its room went
   if (pressed(p, PAD_B) || pressed(p, PAD_Y)) mode = propsBack;
 }
@@ -375,7 +377,7 @@ static const char *MENU[] = { "PLAYTEST", "VMX WINDOW", "SAVE", "LOAD", "NEW LEV
 static char files[64][64]; static int nfiles;
 static void start_play(void) {
   build(&PL);
-  if (PL.player < 0) { say("PUT A PLAYER IN A ROOM FIRST"); mode = M_SHAPE; return; }
+  if (PL.player < 0) { say("PUT THE PLAYER IN A CELL FIRST"); mode = M_SHAPE; return; }
   fold_start(&G, &PL); popT = wonT = 0; mode = M_PLAY;
 }
 static void menu_frame(const Pad *p) {
@@ -623,15 +625,15 @@ static void draw_room_editor(void) {
   uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
   for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 49 - w, Y0 + ry * 49 - w, 49 + 2 * w, 49 + 2 * w, cc);
   char s[64];
-  snprintf(s, sizeof s, "TILE %d %s", rf >> 1, rf & 1 ? "BACK" : "FRONT"); gfx_text(X0, 30, 2, C_TEXT, s);
+  snprintf(s, sizeof s, "CELL %d %s", rf >> 1, rf & 1 ? "BACK" : "FRONT"); gfx_text(X0, 30, 2, C_TEXT, s);
   int px0 = 440;
-  gfx_text(px0, 56, 2, C_DIM, "PAINT  L/R");
+  gfx_text(px0, 56, 2, C_DIM, "TILES  L/R");
   for (int k = 0; k < 6; k++) gfx_text(px0, 80 + k * 18, 2, k == item ? C_HI : C_TEXT, ITEMS[k]);
-  gfx_text(px0, 200, 2, C_DIM, "A PAINT");
+  gfx_text(px0, 200, 2, C_DIM, "A PLACE");
   gfx_text(px0, 218, 2, C_DIM, "B FLOOR");
-  gfx_text(px0, 236, 2, C_DIM, "DPAD ROOM");
-  gfx_text(px0, 254, 2, C_DIM, "Y TILE");
-  gfx_text(px0, 272, 2, C_DIM, "X SHAPE");
+  gfx_text(px0, 236, 2, C_DIM, "DPAD NEXT CELL");
+  gfx_text(px0, 254, 2, C_DIM, "Y CELL");
+  gfx_text(px0, 272, 2, C_DIM, "X LEVEL");
 }
 void app_draw(void) {
   gfx_clear(C_BG);
@@ -647,27 +649,27 @@ void app_draw(void) {
   if (mode == M_ROOM) draw_room_editor();
   else {
     draw_shape();
-    gfx_text(16, 14, 2, C_TEXT, "SHAPE   STICK MOVE  A PLACE  B REMOVE  DPAD FOLD  L/R TURN");
-    gfx_text(16, 32, 2, C_DIM, "X EDIT ROOM   Y TILE SETTINGS   START MENU");
-    snprintf(s, sizeof s, "%s   %d TILES", L.name, L.nsq); gfx_text(16, GH - 22, 2, C_DIM, s);
+    gfx_text(16, 14, 2, C_TEXT, "LEVEL   STICK MOVE  A PLACE CELL  B REMOVE  DPAD FOLD  L/R TURN");
+    gfx_text(16, 32, 2, C_DIM, "X EDIT CELL   Y CELL SETTINGS   START MENU");
+    snprintf(s, sizeof s, "%s   %d CELLS", L.name, L.nsq); gfx_text(16, GH - 22, 2, C_DIM, s);
     if (vmxWin) {                             // the VMX window: the room under the cursor, as on the handheld
       static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
       int i = find_sq(co, ce1, ce2);
       if (i >= 0) { int f = sq_face_toward_eye(i); if (sides[i] >> (f & 1) & 1) vmx_room(b, L.wall, L.target, L.box, L.btn, f, 0, L.player, &S, 0); else vmx_text(b, 12, 28, "NO ROOM"); }
-      else vmx_text(b, 8, 28, "EMPTY CELL");
+      else vmx_text(b, 4, 28, "EMPTY SPACE");
       draw_vmx(GW - 64 * 2 - 30, GH - 64 * 2 - 52, 2, b);
     }
   }
   if (mode == M_PROPS) {
     int i = propSq, n = nbuttons();
     gfx_rect(120, 120, 400, 210, 0x000000); gfx_frame(120, 120, 400, 210, C_HI);
-    snprintf(s, sizeof s, "TILE %d SETTINGS", i); gfx_text(140, 136, 2, C_HI, s);
+    snprintf(s, sizeof s, "CELL %d SETTINGS", i); gfx_text(140, 136, 2, C_HI, s);
     const char *rows[4]; char r1[64], r2[64], r3[64];
     snprintf(r1, sizeof r1, "MOVE: %s", FUNCS[func_index(&func[i])]);
     if (trig[i] > n) trig[i] = 0;
     if (trig[i]) snprintf(r2, sizeof r2, "BUTTON: %d OF %d", trig[i], n); else snprintf(r2, sizeof r2, "BUTTON: NONE (%d PLACED)", n);
-    snprintf(r3, sizeof r3, "BACK ROOM: %s", sides[i] & 2 ? "ON" : "OFF");
-    rows[0] = r1; rows[1] = r2; rows[2] = r3; rows[3] = "DELETE TILE (A)";
+    snprintf(r3, sizeof r3, "BACK SIDE: %s", sides[i] & 2 ? "ON" : "OFF");
+    rows[0] = r1; rows[1] = r2; rows[2] = r3; rows[3] = "DELETE CELL (A)";
     for (int k = 0; k < 4; k++) gfx_text(150, 172 + k * 26, 2, k == prow ? C_HI : C_TEXT, rows[k]);
     gfx_text(140, 300, 2, C_DIM, "UP/DOWN PICK   LEFT/RIGHT CHANGE   B DONE");
   }

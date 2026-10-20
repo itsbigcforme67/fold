@@ -1,6 +1,7 @@
 # Level file format (`.fold`, version 1)
 
-Plain text, one item per line; `#` starts a comment. Everything is on an integer grid.
+Plain text, one item per line; `#` starts a comment. Everything is on an integer grid. (In player-facing words a
+`square` is a *cell* and each of its 8x8 grid places holds a *tile*.)
 
 ```
 fold 1
