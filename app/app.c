@@ -2,7 +2,7 @@
 // Controls (the owner's design, 2026-10-20):
 //   shape view: left stick moves the cursor cell on the working plane; A places a tile (facing you), B removes it;
 //     the D-pad folds the working plane 90 degrees about the cursor cell's edge that way, wrapping away from you (round
-//     the shape); the cursor moves onto the new plane and the view turns to face it; L / R turn the view 90 degrees, the right stick turns / tilts it freely; X opens the
+//     the shape); the cursor moves onto the new plane and the view turns to face it; L / R turn the view 90 degrees, the right stick turns / tilts it freely (with BACK held it zooms); X opens the
 //     room on the side facing you; Y opens the tile's settings (its room move, the button that triggers it, the back
 //     room); START opens the menu.
 //   room editor: left stick moves the cell cursor (off an edge it goes into the next room); the D-pad jumps to the
@@ -258,7 +258,8 @@ static void shape_frame(const Pad *p) {
   if (dpad_rep(p, &d)) fold_plane(PADDIR[d]);
   if (pressed(p, PAD_L)) yawGoal -= PI / 2;
   if (pressed(p, PAD_R)) yawGoal += PI / 2;
-  yawGoal += p->rx * 0.06f; pitch -= p->ry * 0.05f;
+  if (p->held & PAD_BACK) { dist *= 1 + p->ry * 0.04f; if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20; }   // BACK + right stick: zoom
+  else { yawGoal += p->rx * 0.06f; pitch -= p->ry * 0.05f; }
   if (pitch > 1.45f) pitch = 1.45f; if (pitch < -1.45f) pitch = -1.45f;
   int i = find_sq(co, ce1, ce2);
   if (pressed(p, PAD_A)) {
@@ -467,29 +468,71 @@ static void block(Vec3 o, Vec3 du, Vec3 dv, Vec3 n, float h, const Tex *top, con
   gfx_quad(t, top, 0, light(n));
   for (int k = 0; k < 4; k++) {
     if (skip && skip[k]) continue;
-    Vec3 out = k == 0 ? vsc(dv, -8) : k == 1 ? vsc(du, 8) : k == 2 ? vsc(dv, 8) : vsc(du, -8);   // unit outward
+    Vec3 out = k == 0 ? vsc(dv, -1) : k == 1 ? du : k == 2 ? dv : vsc(du, -1);   // outward (light only needs the way)
+    float ol = sqrtf(out.x * out.x + out.y * out.y + out.z * out.z); out = vsc(out, 1 / ol);
     Vec3 Q[4] = { t[k], t[(k + 1) & 3], b[(k + 1) & 3], b[k] };   // texture's top along the block's top
     gfx_quad(Q, side, 0, light(out) * 0.85f);
   }
 }
-static void room_3d(int f) {                  // the contents of side f, standing out of the tile
+// Tiles are drawn inset by GAP from every edge, and every joined edge gets a strip between the two tiles: flat between
+// flat tiles, a 45-degree ramp at an inside corner, a bevel at an outside one. Walls stand GAP high, so at an inside
+// corner one room's edge bricks end exactly where the other room's floor begins: nothing hangs over it. (GAP = wall
+// height = (1 - 2 GAP) / 8 x 0.55, i.e. about half a cell.)
+#define GAP 0.0604f
+#define CS ((1.0f - 2 * GAP) / N)
+typedef struct { Vec3 o, u, v, n; } FFrame;   // a side's frame (front, or the back's mirror)
+static FFrame face_frame(int f) {
   const FoldSquare *q = &L.sq[f >> 1];
-  Vec3 o = v3f(q->o[0], q->o[1], q->o[2]), u = v3f(q->u[0], q->u[1], q->u[2]), v = v3f(q->v[0], q->v[1], q->v[2]), n = v3f(q->n[0], q->n[1], q->n[2]);
-  if (f & 1) { o = vadd(o, u); u = vsc(u, -1); n = vsc(n, -1); }
-  const float cs = 1.0f / N;
-  Vec3 du = vsc(u, cs), dv = vsc(v, cs);
+  FFrame F = { v3f(q->o[0], q->o[1], q->o[2]), v3f(q->u[0], q->u[1], q->u[2]), v3f(q->v[0], q->v[1], q->v[2]), v3f(q->n[0], q->n[1], q->n[2]) };
+  if (f & 1) { F.o = vadd(F.o, F.u); F.u = vsc(F.u, -1); F.n = vsc(F.n, -1); }
+  return F;
+}
+static Vec3 inset_corner(const FFrame *F, int k) {   // corner k (TL TR BR BL) of the inset tile
+  float a = (k == 1 || k == 2) ? 1 - GAP : GAP, b = (k >= 2) ? 1 - GAP : GAP;
+  return vadd(F->o, vadd(vsc(F->u, a), vsc(F->v, b)));
+}
+static void room_3d(int f) {                  // the contents of side f, standing out of the tile
+  FFrame F = face_frame(f);
+  Vec3 o = inset_corner(&F, 0), n = F.n;
+  const float cs = CS;
+  Vec3 du = vsc(F.u, cs), dv = vsc(F.v, cs);
   Tex brick = { 7, 7, brickPx }, bx = { 7, 7, boxPx }, bxOn = { 7, 7, boxOnPx }, man = { 7, 7, manPx }, manTop = { 7, 7, manTopPx };
   for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) {
     int c = f * NN + y * N + x;
     Vec3 p = vadd(o, vadd(vsc(du, (float)x), vsc(dv, (float)y)));
     if (L.wall[c]) {
       int skip[4] = { y > 0 && L.wall[c - N], x < N - 1 && L.wall[c + 1], y < N - 1 && L.wall[c + N], x > 0 && L.wall[c - 1] };
-      block(p, du, dv, n, cs * 0.9f, &brick, &brick, skip);
+      block(p, du, dv, n, GAP, &brick, &brick, skip);
     } else if (L.box[c]) {
       block(vadd(p, vadd(vsc(du, 0.1f), vsc(dv, 0.1f))), vsc(du, 0.8f), vsc(dv, 0.8f), n, cs * 0.75f, L.target[c] ? &bxOn : &bx, L.target[c] ? &bxOn : &bx, NULL);
     } else if (c == L.player) {
       block(vadd(p, vadd(vsc(du, 0.22f), vsc(dv, 0.22f))), vsc(du, 0.56f), vsc(dv, 0.56f), n, cs * 1.3f, &manTop, &man, NULL);
     }
+  }
+}
+// the strips from square i's edges to the squares it joins (each pair once: i the lower index), cell by cell: floor
+// where both rooms' edge cells are open (a doorway carries on across), darker where either side has bricks
+static void strips(int i) {
+  int f = sq_face_toward_eye(i);
+  for (int e = 0; e < 4; e++) {
+    FoldJoin a = S.adj[f][e];
+    if (a.f < 0 || (a.f >> 1) < i) continue;
+    FFrame A = face_frame(f), B = face_frame(a.f);
+    Vec3 pa = inset_corner(&A, e), qa = inset_corner(&A, e + 1), pb = inset_corner(&B, a.e + 1), qb = inset_corner(&B, a.e);
+    Vec3 nrm = vadd(A.n, B.n); float nl = sqrtf(nrm.x * nrm.x + nrm.y * nrm.y + nrm.z * nrm.z);
+    nrm = nl > 0.01f ? vsc(nrm, 1 / nl) : A.n;
+    for (int k = 0; k < N; k++) {
+      float t0 = GAP / (1 - 0) + 0, t1;                     // along the edge, cell k of the inset tile
+      t0 = (float)k / N; t1 = (float)(k + 1) / N;
+      Vec3 a0 = vadd(pa, vsc(vadd(qa, vsc(pa, -1)), t0)), a1 = vadd(pa, vsc(vadd(qa, vsc(pa, -1)), t1));
+      Vec3 b0 = vadd(pb, vsc(vadd(qb, vsc(pb, -1)), t0)), b1 = vadd(pb, vsc(vadd(qb, vsc(pb, -1)), t1));
+      int p = k, x = e == 0 ? p : e == 1 ? N - 1 : e == 2 ? N - 1 - p : 0, y = e == 0 ? 0 : e == 1 ? p : e == 2 ? N - 1 : N - 1 - p;
+      int c = f * NN + y * N + x, d1, c2 = fold_step(&S, c, e, &d1);
+      int open = !L.wall[c] && c2 >= 0 && !L.wall[c2] && (sides[f >> 1] >> (f & 1) & 1);
+      Vec3 Q[4] = { a0, a1, b1, b0 };
+      gfx_quad(Q, NULL, open ? 0x0d1a0a : 0x1d4a10, light(nrm));
+    }
+    gfx_line3(pa, pb, C_EDGE, 1); gfx_line3(qa, qb, C_EDGE, 1);
   }
 }
 static void draw_shape(void) {
@@ -501,10 +544,9 @@ static void draw_shape(void) {
     const FoldSquare *q = &L.sq[i];
     Vec3 o = v3f(q->o[0], q->o[1], q->o[2]), u = v3f(q->u[0], q->u[1], q->u[2]), v = v3f(q->v[0], q->v[1], q->v[2]);
     int f = sq_face_toward_eye(i), room = sides[i] >> (f & 1) & 1;
-    Vec3 P[4];
-    if (!(f & 1)) { P[0] = o; P[1] = vadd(o, u); P[2] = vadd(vadd(o, u), v); P[3] = vadd(o, v); }
-    else { P[0] = vadd(o, u); P[1] = o; P[2] = vadd(o, v); P[3] = vadd(vadd(o, u), v); }
-    Vec3 nf = v3f(q->n[0], q->n[1], q->n[2]); if (f & 1) nf = vsc(nf, -1);
+    FFrame FF = face_frame(f);
+    Vec3 P[4] = { inset_corner(&FF, 0), inset_corner(&FF, 1), inset_corner(&FF, 2), inset_corner(&FF, 3) };
+    Vec3 nf = FF.n;
     if (room) {
       memset(bits, 0, sizeof bits);
       vmx_room(bits, L.wall, L.target, L.box, L.btn, f, 0, -1, &S, VMX_FLOOR_ONLY);   // floor, arrows, targets, buttons
@@ -513,6 +555,7 @@ static void draw_shape(void) {
     } else gfx_quad(P, &backTex, 0, light(nf));
     for (int k = 0; k < 4; k++) gfx_line3(P[k], P[(k + 1) & 3], C_EDGE, 1);
     for (int s = 0; s < 2; s++) if (sides[i] >> s & 1) room_3d(2 * i + s);
+    strips(i);
     if (func[i].kind) {                       // a tile with a room move: a mark at its middle
       Vec3 c = vadd(o, vsc(vadd(u, v), 0.5f)); float sx, sy;
       if (gfx_project(c, &sx, &sy)) { char m[4] = { (char)(func[i].kind - 32), 0 }; gfx_rect((int)sx - 6, (int)sy - 6, 13, 13, 0x000000); gfx_text((int)sx - 4, (int)sy - 4, 2, 0xffd040, m); }

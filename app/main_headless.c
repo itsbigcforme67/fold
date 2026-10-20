@@ -2,7 +2,7 @@
 // screen.   build/fold_headless [-l levels] script.txt
 // Script: one command a line. Buttons: A B X Y L R START BACK UP DOWN LEFT RIGHT (pressed one frame, then let go a
 // frame); "hold <button> <frames>"; "stick <lx> <ly> <frames>"; "rstick <rx> <ry> <frames>"; "wait <frames>";
-// "load <file>"; "save <file>"; "shot <file.ppm>"; "#" comments.
+// "zoom <ry> <frames>" (BACK + right stick); "load <file>"; "save <file>"; "shot <file.ppm>"; "#" comments.
 #include "app.h"
 #include "gfx.h"
 #include <stdio.h>
@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(w, "hold") && sscanf(line, "%*s %31s %d", a, &n) == 2) { p.held = bit(a); run(&p, n); p.held = 0; run(&p, 1); }
     else if (!strcmp(w, "stick") && sscanf(line, "%*s %f %f %d", &x, &y, &n) == 3) { p.lx = x; p.ly = y; run(&p, n); p.lx = p.ly = 0; run(&p, 1); }
     else if (!strcmp(w, "rstick") && sscanf(line, "%*s %f %f %d", &x, &y, &n) == 3) { p.rx = x; p.ry = y; run(&p, n); p.rx = p.ry = 0; run(&p, 1); }
+    else if (!strcmp(w, "zoom") && sscanf(line, "%*s %f %d", &y, &n) == 2) { p.held = PAD_BACK; p.ry = y; run(&p, n); p.held = 0; p.ry = 0; run(&p, 1); }
     else if (!strcmp(w, "load") && sscanf(line, "%*s %199s", a) == 1) { if (!app_load(a)) printf("line %d: load failed\n", lineno); }
     else if (!strcmp(w, "save") && sscanf(line, "%*s %199s", a) == 1) { if (!app_save(a)) printf("line %d: save failed\n", lineno); }
     else if (!strcmp(w, "shot") && sscanf(line, "%*s %199s", a) == 1) { app_draw(); shot(a); }

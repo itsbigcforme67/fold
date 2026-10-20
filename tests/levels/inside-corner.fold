@@ -1,0 +1,24 @@
+fold 1
+name INSIDE CORNER TEST
+# a floor (facing up) and a wall (facing +x) meeting at an inside corner along x = 0, z = 0.
+# The floor's top row lies along the corner and is open floor; the wall's bottom row lies along it and is bricks.
+square 0 0 0  0 1 0  1 0 0
+square 0 0 1  0 1 0  0 0 -1
+room 0 f
+#......#
+#......#
+#......#
+#....p.#
+#......#
+#......#
+#......#
+########
+room 1 f
+########
+#......#
+#......#
+#......#
+#..b...#
+#......#
+#......#
+########
