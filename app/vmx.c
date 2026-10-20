@@ -22,6 +22,7 @@ static const char *GATE_SHUT[7] = { "#######", "#.#.#.#", "#.#.#.#", "#.#.#.#", 
 static const char *GATE_OPEN[7] = { "#.....#", ".......", ".......", ".......", ".......", ".......", "#.....#" };
 static const char *KEY[7] = { ".......", ".###...", "##.####", ".###.##", ".......", ".......", "......." };
 static const char *LOCK[7] = { "#######", "#######", "###.###", "##...##", "###.###", "###.###", "#######" };
+static const char *GRATE[7] = { "#.#.#.#", ".......", "#.#.#.#", ".......", "#.#.#.#", ".......", "#.#.#.#" };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -60,6 +61,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
       else if (kind[c] == FK_GATE) sprite(b, x, y, aux[c] & 0x80 ? GATE_OPEN : GATE_SHUT);
       else if (kind[c] == FK_KEY) sprite(b, x, y, KEY);
       else if (kind[c] == FK_LOCK) sprite(b, x, y, LOCK);
+      else if (kind[c] == FK_GRATE) sprite(b, x, y, GRATE);
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }

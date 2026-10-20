@@ -25,6 +25,9 @@ keeps snapshots of it. See `docs/PLAN.md`.
 - `core/`: the C core (C99, no allocation, ~60 KB of state). `make test` replays all 15 levels and undoes every
   move back to the start; `make parity` checks it against the JavaScript core move by move.
 - `levels/`: the 15 levels as `.fold` files (`docs/FORMAT.md`), exported from the JavaScript version.
+- Tiles: wall, floor, box, target, button, player, plus ice, one-way floor, pit, teleporter pads, pressure plate,
+  gate (worked by buttons / plates), key and lock, player-only grate (`docs/FORMAT.md`; rules tested in
+  `tests/tiles.c`, small test levels in `tests/levels/`). The JavaScript web version only has the original tiles.
 - `app/`: the level editor + playtest + VMX window, on a small software renderer (640x480, the same picture on PC
   and the original Xbox). `make app` builds `build/fold` (SDL2 window) and `build/fold_headless` (scripted input,
   screenshots; used for testing). Run `build/fold levels`. Pad or keyboard (WASD stick, arrows D-pad, Z A, X B, C X,

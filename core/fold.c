@@ -225,6 +225,7 @@ static int enterable(const FoldGame *g, int c, int d, int box) {
   if (g->kind[c] == FK_PIT) return box;                       // you can't walk in; a box drops in and fills it
   if (g->kind[c] == FK_GATE && !(g->aux[c] & 0x80)) return 0; // a closed gate (whatever stands in it can still leave)
   if (g->kind[c] == FK_LOCK) return !box && g->keys[0] > 0;   // you with a key can open it
+  if (g->kind[c] == FK_GRATE) return !box;                    // you can cross a grate, a box can't
   return 1;
 }
 // a box arrives at c heading d: into a pit it drops (the pit becomes floor, the box is gone; returns -1); on ice it
@@ -340,7 +341,8 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<_123456789=|:kl", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_123456789=|:kl+", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch == '+') lv->kind[c] = FK_GRATE;
         if (ch == 'k') lv->kind[c] = FK_KEY;
         if (ch == 'l') lv->kind[c] = FK_LOCK;
         if (ch == '|' || ch == ':') { lv->kind[c] = FK_GATE; lv->aux[c] = ch == ':' ? 0x80 : 0; }   // its group: a gate line

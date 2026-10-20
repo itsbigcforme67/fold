@@ -85,6 +85,11 @@ int main(void) {
   moves("rr"); tests++; { int ok = g.keys[0] == 1 && g.kind[CELL(0, 4, 2)] == FK_FLOOR; printf("%-44s %s\n", "key: picked up", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   moves("lldd"); tests++; { int ok = g.keys[0] == 0 && g.p == CELL(0, 2, 4); printf("%-44s %s\n", "lock: a key opens it and is used up", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   expect("key + lock: undo puts key and lock back", CELL(0, 2, 4), (int[]){ CELL(0, 2, 5) }, 1);
+  // ---- player-only grate ----
+  load(level("########\n#......#\n#.pb+..#\n#......#\n#..+...#\n#.b~~+.#\n#......#\n########\n"));
+  moves("r"); expect("grate: a box can't be pushed onto it", CELL(0, 2, 2), (int[]){ CELL(0, 3, 2), CELL(0, 2, 5) }, 2);
+  g = g0; moves("drd"); expect("grate: you can walk over it", CELL(0, 3, 4), (int[]){ CELL(0, 3, 2), CELL(0, 2, 5) }, 2);
+  g = g0; moves("lddd" "r"); expect("grate: a sliding box stops before it", CELL(0, 2, 5), (int[]){ CELL(0, 3, 2), CELL(0, 4, 5) }, 2);
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

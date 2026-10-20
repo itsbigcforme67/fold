@@ -29,7 +29,7 @@ far pad is free), `=` pressure plate (a button that holds only while a box is on
 undo; numbered with the buttons), `|` gate (closed) / `:` gate (open): a wall while closed; opened and closed by the
 link move `g<k>`, which works every gate of group k (`gate <square> <f|b> <x> <y> <k>`; the editor uses the number
 of the button that works it), `k` key (picked up when you step on it), `l` lock (a wall, unless you walk in holding
-a key: it's used up and the lock becomes floor; boxes can't open it).
+a key: it's used up and the lock becomes floor; boxes can't open it), `+` grate (you can cross it, boxes can't).
 
 A box or the player starting on any other kind of tile: `box <square> <f|b> <x> <y>` / `player <square> <f|b> <x> <y>`
 after the room block. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.

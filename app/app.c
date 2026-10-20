@@ -51,8 +51,8 @@ static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
 static int rf, rrot, rx = 3, ry = 3, item = 1;
-static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK" };
-#define NITEMS 14
+static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK", "GRATE" };
+#define NITEMS 15
 // settings / menu
 static int prow, mrow, fileIx, vmxWin = 1, propSq, propsBack = M_SHAPE;
 // playtest
@@ -141,7 +141,7 @@ int app_save(const char *p) {
     if (!(sides[fc >> 1] >> (fc & 1) & 1)) continue;
     fprintf(f, "room %d %c\n", fc >> 1, fc & 1 ? 'b' : 'f');
     for (int y = 0; y < N; y++) { for (int x = 0; x < N; x++) { int c = fc * NN + y * N + x;
-      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' : L.kind[c] == FK_GATE ? (L.aux[c] & 0x80 ? ':' : '|') : L.kind[c] == FK_KEY ? 'k' : L.kind[c] == FK_LOCK ? 'l' :   // special floors: a box /
+      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' : L.kind[c] == FK_GATE ? (L.aux[c] & 0x80 ? ':' : '|') : L.kind[c] == FK_KEY ? 'k' : L.kind[c] == FK_LOCK ? 'l' : L.kind[c] == FK_GRATE ? '+' :   // special floors: a box /
         // the player on them goes on its own line
         L.wall[c] ? '#' : L.box[c] ? (L.target[c] ? 'B' : B.btn[c] ? 'O' : 'b') : c == L.player ? (L.target[c] ? 'P' : 'p') : L.target[c] ? 'x' : B.btn[c] ? 'o' : '.';
       fputc(ch, f); } fputc('\n', f); }
@@ -325,6 +325,8 @@ static void paint(int c, int what) {
       L.wall[c] = 0; L.btn[c] = 0;
       if (L.kind[c] == FK_GATE) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0; say("Y ON A GATE PICKS ITS BUTTON"); }
       break;
+    case 14:                                  // grate: you can cross it, boxes can't
+      L.wall[c] = 0; L.btn[c] = 0; L.box[c] = L.target[c] = 0; L.kind[c] = L.kind[c] == FK_GRATE ? FK_FLOOR : FK_GRATE; break;
     case 12: case 13:                         // key / lock
       if (c == L.player && what == 13) return;
       L.wall[c] = 0; L.btn[c] = 0; if (what == 13) L.box[c] = L.target[c] = 0;
@@ -661,6 +663,7 @@ static void draw_shape(void) {
                                 k == FK_GATE ? (lit ? 0x9fb4c8 : 0x10161c) :          // gate: steel
                                 k == FK_KEY ? (lit ? 0x4fa82a : 0x0d1a0a) :           // key: stands up (below)
                                 k == FK_LOCK ? (lit ? 0xffd040 : 0x0d1a0a) :          // lock: under its block
+                                k == FK_GRATE ? (lit ? 0xa0a8a0 : 0x0d1a0a) :         // grate: grey
                                 lit ? 0x4fa82a : 0x0d1a0a;
       }
       Tex tx = { 56, 56, texbuf[0] }; gfx_quad(P, &tx, 0, light(nf));
