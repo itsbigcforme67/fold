@@ -439,26 +439,84 @@ static void room_tex(int f, int rot, uint32_t *out, uint32_t lit, uint32_t dark)
   vmx_room(bits, L.wall, L.target, L.box, L.btn, f, rot, L.player);
   for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) out[y * 56 + x] = bits[(y + 8) * 64 + x + 4] ? lit : dark;
 }
+// ---- the shape in 3D: tiles with their rooms, walls as brick blocks, boxes as crates, the player standing up ------
+static Vec3 vadd(Vec3 a, Vec3 b) { return v3f(a.x + b.x, a.y + b.y, a.z + b.z); }
+static Vec3 vsc(Vec3 a, float k) { return v3f(a.x * k, a.y * k, a.z * k); }
+static float light(Vec3 n) {                  // one light, up and to the side, plus some ambient
+  const float lx = 0.38f, ly = 0.52f, lz = 0.76f;
+  float d = n.x * lx + n.y * ly + n.z * lz;
+  return 0.42f + 0.58f * (d > 0 ? d : 0);
+}
+static uint32_t brickPx[49], boxPx[49], boxOnPx[49], manPx[49], manTopPx[49];
+static void tex_init(void) {
+  static int done; if (done) return; done = 1;
+  for (int j = 0; j < 7; j++) for (int i = 0; i < 7; i++) {
+    int brick = !(j == 3 || j == 6 || (j < 3 && i == 6) || (j > 3 && j < 6 && i == 2));
+    brickPx[j * 7 + i] = brick ? VMX_LIT : 0x1d4a10;
+    boxPx[j * 7 + i] = VMX_BOX[j][i] == '#' ? 0xe0c070 : 0x3a2c14;
+    boxOnPx[j * 7 + i] = VMX_BOXON[j][i] == '#' ? 0xffe9a0 : 0x5a4420;
+    manPx[j * 7 + i] = VMX_MAN[j][i] == '#' ? 0xffffff : 0x203040;
+    manTopPx[j * 7 + i] = 0xc8d8ff;
+  }
+}
+// a block standing on a room cell: base corner o, edges du dv (across the cell), up n, height h. skip[k]: don't draw
+// side k (0 the du edge at the cell's top, 1 the right side, 2 the bottom, 3 the left), hidden by a neighbour.
+static void block(Vec3 o, Vec3 du, Vec3 dv, Vec3 n, float h, const Tex *top, const Tex *side, const int *skip) {
+  Vec3 b[4] = { o, vadd(o, du), vadd(vadd(o, du), dv), vadd(o, dv) }, t[4], up = vsc(n, h);
+  for (int k = 0; k < 4; k++) t[k] = vadd(b[k], up);
+  gfx_quad(t, top, 0, light(n));
+  for (int k = 0; k < 4; k++) {
+    if (skip && skip[k]) continue;
+    Vec3 out = k == 0 ? vsc(dv, -8) : k == 1 ? vsc(du, 8) : k == 2 ? vsc(dv, 8) : vsc(du, -8);   // unit outward
+    Vec3 Q[4] = { t[k], t[(k + 1) & 3], b[(k + 1) & 3], b[k] };   // texture's top along the block's top
+    gfx_quad(Q, side, 0, light(out) * 0.85f);
+  }
+}
+static void room_3d(int f) {                  // the contents of side f, standing out of the tile
+  const FoldSquare *q = &L.sq[f >> 1];
+  Vec3 o = v3f(q->o[0], q->o[1], q->o[2]), u = v3f(q->u[0], q->u[1], q->u[2]), v = v3f(q->v[0], q->v[1], q->v[2]), n = v3f(q->n[0], q->n[1], q->n[2]);
+  if (f & 1) { o = vadd(o, u); u = vsc(u, -1); n = vsc(n, -1); }
+  const float cs = 1.0f / N;
+  Vec3 du = vsc(u, cs), dv = vsc(v, cs);
+  Tex brick = { 7, 7, brickPx }, bx = { 7, 7, boxPx }, bxOn = { 7, 7, boxOnPx }, man = { 7, 7, manPx }, manTop = { 7, 7, manTopPx };
+  for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) {
+    int c = f * NN + y * N + x;
+    Vec3 p = vadd(o, vadd(vsc(du, (float)x), vsc(dv, (float)y)));
+    if (L.wall[c]) {
+      int skip[4] = { y > 0 && L.wall[c - N], x < N - 1 && L.wall[c + 1], y < N - 1 && L.wall[c + N], x > 0 && L.wall[c - 1] };
+      block(p, du, dv, n, cs * 0.9f, &brick, &brick, skip);
+    } else if (L.box[c]) {
+      block(vadd(p, vadd(vsc(du, 0.1f), vsc(dv, 0.1f))), vsc(du, 0.8f), vsc(dv, 0.8f), n, cs * 0.75f, L.target[c] ? &bxOn : &bx, L.target[c] ? &bxOn : &bx, NULL);
+    } else if (c == L.player) {
+      block(vadd(p, vadd(vsc(du, 0.22f), vsc(dv, 0.22f))), vsc(du, 0.56f), vsc(dv, 0.56f), n, cs * 1.3f, &manTop, &man, NULL);
+    }
+  }
+}
 static void draw_shape(void) {
-  gfx_zclear();
+  gfx_zclear(); tex_init();
   static uint32_t back[8 * 8]; static int init;
   if (!init) { init = 1; for (int i = 0; i < 64; i++) back[i] = ((i % 8) + (i / 8)) & 1 ? 0x24301f : 0x141a12; }
   Tex backTex = { 8, 8, back };
+  static uint8_t none[FOLD_MAXC];               // walls / boxes left out of the tile's own picture: they stand up
   for (int i = 0; i < L.nsq; i++) {
     const FoldSquare *q = &L.sq[i];
     Vec3 o = v3f(q->o[0], q->o[1], q->o[2]), u = v3f(q->u[0], q->u[1], q->u[2]), v = v3f(q->v[0], q->v[1], q->v[2]);
     int f = sq_face_toward_eye(i), room = sides[i] >> (f & 1) & 1;
     Vec3 P[4];
-    if (!(f & 1)) { P[0] = o; P[1] = v3f(o.x + u.x, o.y + u.y, o.z + u.z); P[2] = v3f(o.x + u.x + v.x, o.y + u.y + v.y, o.z + u.z + v.z); P[3] = v3f(o.x + v.x, o.y + v.y, o.z + v.z); }
-    else { P[0] = v3f(o.x + u.x, o.y + u.y, o.z + u.z); P[1] = o; P[2] = v3f(o.x + v.x, o.y + v.y, o.z + v.z); P[3] = v3f(o.x + u.x + v.x, o.y + u.y + v.y, o.z + u.z + v.z); }
-    Vec3 c = v3f(o.x + (u.x + v.x) / 2, o.y + (u.y + v.y) / 2, o.z + (u.z + v.z) / 2);
-    Vec3 dv = v3f(eye.x - c.x, eye.y - c.y, eye.z - c.z); float l = sqrtf(dv.x * dv.x + dv.y * dv.y + dv.z * dv.z);
-    float shade = 0.55f + 0.45f * fabsf((dv.x * q->n[0] + dv.y * q->n[1] + dv.z * q->n[2]) / l);
-    if (room) { room_tex(f, 0, texbuf[0], VMX_LIT, VMX_DARK); Tex tx = { 56, 56, texbuf[0] }; gfx_quad(P, &tx, 0, shade); }
-    else gfx_quad(P, &backTex, 0, shade);
+    if (!(f & 1)) { P[0] = o; P[1] = vadd(o, u); P[2] = vadd(vadd(o, u), v); P[3] = vadd(o, v); }
+    else { P[0] = vadd(o, u); P[1] = o; P[2] = vadd(o, v); P[3] = vadd(vadd(o, u), v); }
+    Vec3 nf = v3f(q->n[0], q->n[1], q->n[2]); if (f & 1) nf = vsc(nf, -1);
+    if (room) {
+      memset(bits, 0, sizeof bits);
+      vmx_room(bits, none, L.target, none, L.btn, f, 0, -1);   // floor, targets, buttons
+      for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) texbuf[0][y * 56 + x] = bits[(y + 8) * 64 + x + 4] ? 0x4fa82a : 0x0d1a0a;
+      Tex tx = { 56, 56, texbuf[0] }; gfx_quad(P, &tx, 0, light(nf));
+    } else gfx_quad(P, &backTex, 0, light(nf));
     for (int k = 0; k < 4; k++) gfx_line3(P[k], P[(k + 1) & 3], C_EDGE, 1);
+    for (int s = 0; s < 2; s++) if (sides[i] >> s & 1) room_3d(2 * i + s);
     if (func[i].kind) {                       // a tile with a room move: a mark at its middle
-      float sx, sy; if (gfx_project(c, &sx, &sy)) { char s[4] = { (char)(func[i].kind - 32), 0 }; gfx_rect((int)sx - 6, (int)sy - 6, 13, 13, 0x000000); gfx_text((int)sx - 4, (int)sy - 4, 2, 0xffd040, s); }
+      Vec3 c = vadd(o, vsc(vadd(u, v), 0.5f)); float sx, sy;
+      if (gfx_project(c, &sx, &sy)) { char m[4] = { (char)(func[i].kind - 32), 0 }; gfx_rect((int)sx - 6, (int)sy - 6, 13, 13, 0x000000); gfx_text((int)sx - 4, (int)sy - 4, 2, 0xffd040, m); }
     }
   }
   // the working plane's grid round the cursor, and the cursor

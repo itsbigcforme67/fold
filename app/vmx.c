@@ -7,10 +7,10 @@
 #define CELL 7
 #define OX 4
 #define OY 8
-static const char *BOX[7] = { "#######", "#.....#", "#.#.#.#", "#..#..#", "#.#.#.#", "#.....#", "#######" };
-static const char *BOXON[7] = { "#######", "#######", "##...##", "##.#.##", "##...##", "#######", "#######" };
+const char *VMX_BOX[7] = { "#######", "#.....#", "#.#.#.#", "#..#..#", "#.#.#.#", "#.....#", "#######" };
+const char *VMX_BOXON[7] = { "#######", "#######", "##...##", "##.#.##", "##...##", "#######", "#######" };
 static const char *TARGET[7] = { ".......", ".......", "..###..", "..#.#..", "..###..", ".......", "......." };
-static const char *MAN[7] = { "..###..", "..###..", "...#...", ".#####.", "...#...", "..#.#..", ".#...#." };
+const char *VMX_MAN[7] = { "..###..", "..###..", "...#...", ".#####.", "...#...", "..#.#..", ".#...#." };
 static const char *FLOOR[7] = { ".......", ".......", ".......", "...#...", ".......", ".......", "......." };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
@@ -34,8 +34,8 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
     if (!target[c] && !btn[c] && !box[c] && c != player) sprite(b, x, y, FLOOR);
     if (btn[c] && !box[c] && c != player) sprite(b, x, y, BUTTON);
     if (target[c] && !box[c]) sprite(b, x, y, TARGET);
-    if (box[c]) sprite(b, x, y, target[c] ? BOXON : BOX);
-    if (c == player) sprite(b, x, y, MAN);
+    if (box[c]) sprite(b, x, y, target[c] ? VMX_BOXON : VMX_BOX);
+    if (c == player) sprite(b, x, y, VMX_MAN);
   }
 }
 
