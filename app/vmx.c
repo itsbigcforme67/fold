@@ -20,6 +20,8 @@ static const char *TELE[7] = { ".#####.", "#.....#", "#.###.#", "#.#.#.#", "#.##
 static const char *PLATE[7] = { ".......", ".#####.", ".#####.", ".##.##.", ".#####.", ".#####.", "......." };
 static const char *GATE_SHUT[7] = { "#######", "#.#.#.#", "#.#.#.#", "#.#.#.#", "#.#.#.#", "#.#.#.#", "#######" };
 static const char *GATE_OPEN[7] = { "#.....#", ".......", ".......", ".......", ".......", ".......", "#.....#" };
+static const char *KEY[7] = { ".......", ".###...", "##.####", ".###.##", ".......", ".......", "......." };
+static const char *LOCK[7] = { "#######", "#######", "###.###", "##...##", "###.###", "###.###", "#######" };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -56,6 +58,8 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
       else if (kind[c] == FK_PIT) sprite(b, x, y, PIT);
       else if (kind[c] == FK_TELE) sprite(b, x, y, TELE);
       else if (kind[c] == FK_GATE) sprite(b, x, y, aux[c] & 0x80 ? GATE_OPEN : GATE_SHUT);
+      else if (kind[c] == FK_KEY) sprite(b, x, y, KEY);
+      else if (kind[c] == FK_LOCK) sprite(b, x, y, LOCK);
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }
@@ -74,6 +78,10 @@ void vmx_game(uint8_t *b, const FoldGame *g, int level, const char *line2) {
   snprintf(s, sizeof s, "%02d", level); vmx_text(b, 1, 1, s);
   rect(b, 26, 1, 30, 5, 1); rect(b, 27, 2, 29, 4, 0); px(b, 28, 3, 1);
   snprintf(s, sizeof s, "%d", left); vmx_text(b, 33, 1, s);
+  if (g->keys[0]) {                           // keys you hold: a little key and how many
+    rect(b, 40, 2, 42, 4, 1); px(b, 41, 3, 0); rect(b, 43, 3, 45, 3, 1); px(b, 45, 4, 1);
+    snprintf(s, sizeof s, "%d", g->keys[0] > 9 ? 9 : g->keys[0]); vmx_text(b, 47, 1, s);
+  }
   snprintf(s, sizeof s, "%d", g->moves > 9999 ? 9999 : g->moves); vmx_text(b, 64 - 4 * (int)strlen(s), 1, s);
   if (line2) {
     rect(b, 6, 23, 57, 43, 0); rect(b, 6, 23, 57, 23, 1); rect(b, 6, 43, 57, 43, 1); rect(b, 6, 23, 6, 43, 1); rect(b, 57, 23, 57, 43, 1);

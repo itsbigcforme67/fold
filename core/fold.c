@@ -125,10 +125,11 @@ static void rebuild(FoldGame *g) {
 // ---- changes, logged for undo -----------------------------------------------------------------------------------
 // Every change a move makes goes through set(): the old value is logged, and undo plays the log backwards. That keeps
 // undo exact whatever a move does (slides, room moves, ...).
-enum { A_WALL, A_TARGET, A_BOX, A_BTN, A_KIND, A_AUX, A_FLIPS, A_TURNS, A_MOVED, A_N };
+enum { A_WALL, A_TARGET, A_BOX, A_BTN, A_KIND, A_AUX, A_FLIPS, A_TURNS, A_MOVED, A_KEYS, A_N };
 static uint8_t *arr(FoldGame *g, int a) {
   switch (a) { case A_WALL: return g->wall; case A_TARGET: return g->target; case A_BOX: return g->box; case A_BTN: return g->btn;
-               case A_KIND: return g->kind; case A_AUX: return g->aux; case A_FLIPS: return g->flips; case A_TURNS: return g->turns; }
+               case A_KIND: return g->kind; case A_AUX: return g->aux; case A_FLIPS: return g->flips; case A_TURNS: return g->turns;
+               case A_KEYS: return g->keys; }
   return g->moved;
 }
 static void drop_oldest(FoldGame *g) {        // the journal or the move list is full: forget the oldest move
@@ -223,6 +224,7 @@ static int enterable(const FoldGame *g, int c, int d, int box) {
   if (g->kind[c] == FK_ONEWAY && g->aux[c] != d) return 0;   // only in the arrow's way
   if (g->kind[c] == FK_PIT) return box;                       // you can't walk in; a box drops in and fills it
   if (g->kind[c] == FK_GATE && !(g->aux[c] & 0x80)) return 0; // a closed gate (whatever stands in it can still leave)
+  if (g->kind[c] == FK_LOCK) return !box && g->keys[0] > 0;   // you with a key can open it
   return 1;
 }
 // a box arrives at c heading d: into a pit it drops (the pit becomes floor, the box is gone; returns -1); on ice it
@@ -241,6 +243,10 @@ static int box_slide(FoldGame *g, int c, int d) {
 static int partner(const FoldGame *g, int c) {
   for (int k = 0; k < 2 * g->lv->nsq * NN; k++) if (k != c && g->kind[k] == FK_TELE && g->aux[k] == g->aux[c] && !g->wall[k]) return k;
   return -1;
+}
+// you step onto tile c: a lock opens (using a key)
+static void step_on(FoldGame *g, int c) {
+  if (g->kind[c] == FK_LOCK) { set(g, A_KEYS, 0, g->keys[0] - 1); set(g, A_KIND, c, FK_FLOOR); }
 }
 int fold_move(FoldGame *g, int sd) {
   int d = (sd + g->camrot) & 3, d1, d2;
@@ -266,15 +272,17 @@ int fold_move(FoldGame *g, int sd) {
     }
   }
   int c = c1, hd = d1;                        // you: one step, then on ice keep sliding (a box stops you)
+  step_on(g, c);
   for (int guard = 0; guard < FOLD_MAXC && g->kind[c] == FK_ICE; guard++) {
     int nd, n = fold_step(&g->s, c, hd, &nd);
     if (!enterable(g, n, nd, 0) || g->box[n]) break;
-    c = n; hd = nd;
+    c = n; hd = nd; step_on(g, c);
   }
   if (g->kind[c] == FK_TELE) {                // onto a pad: across to its partner (same heading there) if it's free
     int t = partner(g, c);
     if (t >= 0 && !g->box[t]) { c = t; r |= FOLD_TELEPORTED; }
   }
+  if (g->kind[c] == FK_KEY) { set(g, A_KEYS, 0, g->keys[0] + 1); set(g, A_KIND, c, FK_FLOOR); }   // pick up a key
   g->p = c; g->moves++;
   if (c / NN != g->camf) { g->camf = c / NN; g->camrot = (hd - sd) & 3; r |= FOLD_CROSSED; }
   if (offPlate) r |= trigger(g, offPlate - 1, 1, &c2);   // a plate the box left lets go: its moves undo
@@ -332,7 +340,9 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<_123456789=|:", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_123456789=|:kl", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch == 'k') lv->kind[c] = FK_KEY;
+        if (ch == 'l') lv->kind[c] = FK_LOCK;
         if (ch == '|' || ch == ':') { lv->kind[c] = FK_GATE; lv->aux[c] = ch == ':' ? 0x80 : 0; }   // its group: a gate line
         if (ch == '=') { if (lv->nbtn == FOLD_MAXBTN) FAIL("line %d: too many buttons", lineno); lv->kind[c] = FK_PLATE; lv->btn[c] = (uint8_t)++lv->nbtn; }
         if (ch >= '1' && ch <= '9') { lv->kind[c] = FK_TELE; lv->aux[c] = (uint8_t)(ch - '0'); }

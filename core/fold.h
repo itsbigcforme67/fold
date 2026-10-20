@@ -23,10 +23,11 @@
 
 // tile kinds (kind[]): what a floor tile is, beyond plain floor. aux[] holds its value (a one-way's direction in its
 // cell's frame, ...). Walls, targets, boxes and buttons have their own arrays.
-enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6 };
+enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6, FK_KEY = 7, FK_LOCK = 8 };
 // ONEWAY: aux = the only way in (0 up 1 right 2 down 3 left). TELE: aux = its pair (1-9; the two pads with it).
 // PLATE: a button (numbered with the buttons in btn[]) that holds only while a box is on it.
 // GATE: aux = the button that works it (low 7 bits) | 0x80 when open; a closed gate is a wall to anything entering.
+// KEY: picked up when you step on it. LOCK: a wall, unless you walk in holding a key (it's used, the lock is floor).
 
 typedef struct { int8_t o[3], u[3], v[3], n[3]; } FoldSquare;   // n = v x u: the front's outward normal
 typedef struct { char kind; uint8_t sq; char spec[3]; } FoldAct; // kind f r s h g; spec "u".."i" or "<e><+|->"; g: sq = gate group
@@ -60,6 +61,7 @@ typedef struct {
   FoldSurface s;
   uint8_t wall[FOLD_MAXC], target[FOLD_MAXC], box[FOLD_MAXC], btn[FOLD_MAXC], kind[FOLD_MAXC], aux[FOLD_MAXC];
   uint8_t flips[FOLD_MAXSQ], turns[FOLD_MAXSQ], moved[FOLD_MAXSQ];
+  uint8_t keys[1];                        // keys you hold (an array so the journal can log it)
   int p, camf, camrot;                    // you; the room on screen and how it is turned
   int moves, pushes;
   int nundo; FoldUndo undo[FOLD_MAXUNDO];

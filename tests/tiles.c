@@ -17,7 +17,7 @@ static void expect(const char *name, int p, const int *boxes, int nb) {
   for (int c = 0; c < FOLD_MAXC; c++) if (g.box[c]) { n++; int found = 0; for (int k = 0; k < nb; k++) if (boxes[k] == c) found = 1; if (!found) ok = 0; }
   if (n != nb) ok = 0;
   while (fold_undo(&g)) {}
-  int back = !memcmp(g.box, g0.box, sizeof g.box) && !memcmp(g.wall, g0.wall, sizeof g.wall) && !memcmp(g.kind, g0.kind, sizeof g.kind) && g.p == g0.p;
+  int back = !memcmp(g.box, g0.box, sizeof g.box) && !memcmp(g.wall, g0.wall, sizeof g.wall) && !memcmp(g.kind, g0.kind, sizeof g.kind) && !memcmp(g.aux, g0.aux, sizeof g.aux) && g.keys[0] == g0.keys[0] && g.p == g0.p;
   printf("%-44s %s%s\n", name, ok ? "ok" : "WRONG", back ? "" : "  (undo NOT back to start)");
   if (!ok || !back) fails++;
 }
@@ -79,6 +79,12 @@ int main(void) {
   load(level("########\n#......#\n#.pb=..#\n#......#\n#..|...#\n#......#\n#......#\n########\ngate 0 f 3 4 1\nlink 1 g1\n"));
   moves("r"); tests++; { int ok = g.aux[CELL(0, 3, 4)] & 0x80; printf("%-44s %s\n", "gate: a plate opens it", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   moves("r"); tests++; { int ok = !(g.aux[CELL(0, 3, 4)] & 0x80); printf("%-44s %s\n", "gate: and it shuts when the box leaves", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  // ---- key + lock ----
+  load(level("########\n#......#\n#.p.k..#\n#......#\n#.l....#\n#.b....#\n#......#\n########\n"));
+  { FoldGame t = g; fold_move(&t, 2); fold_move(&t, 2); tests++; int ok = t.p == CELL(0, 2, 3); printf("%-44s %s\n", "lock: no key, it's a wall", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  moves("rr"); tests++; { int ok = g.keys[0] == 1 && g.kind[CELL(0, 4, 2)] == FK_FLOOR; printf("%-44s %s\n", "key: picked up", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  moves("lldd"); tests++; { int ok = g.keys[0] == 0 && g.p == CELL(0, 2, 4); printf("%-44s %s\n", "lock: a key opens it and is used up", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  expect("key + lock: undo puts key and lock back", CELL(0, 2, 4), (int[]){ CELL(0, 2, 5) }, 1);
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }
