@@ -23,7 +23,7 @@
 
 // tile kinds (kind[]): what a floor tile is, beyond plain floor. aux[] holds its value (a one-way's direction in its
 // cell's frame, ...). Walls, targets, boxes and buttons have their own arrays.
-enum { FK_FLOOR = 0, FK_ICE = 1 };
+enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2 };   // ONEWAY: aux = the only way in (0 up 1 right 2 down 3 left)
 
 typedef struct { int8_t o[3], u[3], v[3], n[3]; } FoldSquare;   // n = v x u: the front's outward normal
 typedef struct { char kind; uint8_t sq; char spec[3]; } FoldAct; // kind f r s h; spec "u".."i" or "<e><+|->"

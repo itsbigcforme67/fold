@@ -153,6 +153,9 @@ static void tile_put(FoldGame *g, int c, TileV t) { for (int a = 0; a < 6; a++) 
 static void flip_square(FoldGame *g, int i) {
   for (int c = 2 * i * NN; c < (2 * i + 1) * NN; c++) {
     int t = twin(c); TileV a = tile_get(g, c), b = tile_get(g, t);
+    // the other side is the mirror image: a one-way's left / right swap
+    if (a.v[4] == FK_ONEWAY && a.v[5] & 1) a.v[5] ^= 2;
+    if (b.v[4] == FK_ONEWAY && b.v[5] & 1) b.v[5] ^= 2;
     tile_put(g, c, b); tile_put(g, t, a);
   }
   if ((g->p / NN) >> 1 == i) g->p = twin(g->p);
@@ -162,7 +165,11 @@ static void flip_square(FoldGame *g, int i) {
 static void turn_square(FoldGame *g, int i) {
   TileV old[2 * NN]; int lo = 2 * i * NN;
   for (int c = lo; c < lo + 2 * NN; c++) old[c - lo] = tile_get(g, c);
-  for (int c = lo; c < lo + 2 * NN; c++) tile_put(g, rot_cell(c), old[c - lo]);
+  for (int c = lo; c < lo + 2 * NN; c++) {
+    TileV t = old[c - lo];
+    if (t.v[4] == FK_ONEWAY) t.v[5] = (uint8_t)((t.v[5] + ((c / NN) & 1 ? 3 : 1)) & 3);   // turns with it (the back sees it anticlockwise)
+    tile_put(g, rot_cell(c), t);
+  }
   if ((g->p / NN) >> 1 == i) g->p = rot_cell(g->p);
   if (g->camf >> 1 == i) {                    // your room holds still on screen: the view turns with it
     int c = g->camf * NN + 2 * N + 1, r = rot_cell(c), sx, sy;
@@ -191,8 +198,9 @@ void fold_start(FoldGame *g, const FoldLevel *lv) {
 }
 // can a box (box = 1) or you (box = 0) go onto tile c, arriving with heading d?
 static int enterable(const FoldGame *g, int c, int d, int box) {
-  (void)d; (void)box;
+  (void)box;
   if (c < 0 || g->wall[c]) return 0;
+  if (g->kind[c] == FK_ONEWAY && g->aux[c] != d) return 0;   // only in the arrow's way
   return 1;
 }
 // a box arrives at c heading d: on ice it keeps sliding until the next tile won't take it. Returns where it stops.
@@ -287,8 +295,9 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
         if (ch == '~') lv->kind[c] = FK_ICE;
+        if (strchr("^>v<", ch)) { lv->kind[c] = FK_ONEWAY; lv->aux[c] = (uint8_t)(strchr("^>v<", ch) - "^>v<"); }
         lv->wall[c] = ch == '#';
         if (strchr("xBP", ch)) lv->target[c] = 1;
         if (strchr("bBO", ch)) lv->box[c] = 1;

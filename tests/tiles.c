@@ -37,6 +37,17 @@ int main(void) {
        "room 0 f\n########\n#......#\n#......#\n#p.~~~~~\n#......#\n#......#\n#......#\n########\n"
        "room 1 f\n########\n#......#\n#......#\n~~~....#\n#......#\n#......#\n#......#\n########\n");
   moves("rr"); { expect("ice: a slide carries on through a doorway", CELL(2, 3, 3), NULL, 0); }
+  // ---- one-way floor ----
+  load(level("########\n#......#\n#..p...#\n#..>...#\n#.b>...#\n#......#\n#......#\n########\n"));
+  moves("d"); { int b[] = { CELL(0, 2, 4) }; expect("one-way: can't step in against its arrow", CELL(0, 3, 2), b, 1); }
+  g = g0; moves("llddr"); { int b[] = { CELL(0, 3, 4) }; expect("one-way: a box goes onto it the arrow's way", CELL(0, 2, 4), b, 1); }
+  load(level("########\n#...p..#\n#...b..#\n#...>..#\n#......#\n#......#\n#......#\n########\n"));
+  moves("d"); { int b[] = { CELL(0, 4, 2) }; expect("one-way: but can't be pushed in sideways", CELL(0, 4, 1), b, 1); }
+  // a turned cell turns its arrows: one cell, a button that turns it; the arrow then points down
+  load(level("########\n#......#\n#.pbo..#\n#..>...#\n#......#\n#......#\n#......#\n########\nlink 1 r0\n"));
+  moves("r"); tests++; { int ok = g.kind[CELL(0, 4, 3)] == FK_ONEWAY && g.aux[CELL(0, 4, 3)] == 2; printf("%-44s %s\n", "one-way: turns with its cell", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  load(level("########\n#......#\n#.pbo..#\n#..>...#\n#......#\n#......#\n#......#\n########\nlink 1 f0\n"));
+  moves("r"); tests++; { int ok = g.kind[CELL(1, 4, 3)] == FK_ONEWAY && g.aux[CELL(1, 4, 3)] == 3; printf("%-44s %s\n", "one-way: mirrors when its cell flips", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

@@ -14,6 +14,7 @@ const char *VMX_MAN[7] = { "..###..", "..###..", "...#...", ".#####.", "...#..."
 static const char *FLOOR[7] = { ".......", ".......", ".......", "...#...", ".......", ".......", "......." };
 static const char *ARROW[7] = { ".......", "...#...", "..###..", ".#.#.#.", "...#...", ".......", "......." };   // up
 static const char *ICE[7] = { ".......", ".#.....", "..#....", ".......", "....#..", ".....#.", "......." };
+static const char *ONEWAY[7] = { "...#...", "..###..", ".#####.", "#######", "..###..", "..###..", "......." };   // up
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -23,15 +24,15 @@ void vmx_text(uint8_t *b, int x, int y, const char *s) {
   for (; *s; s++, x += 4) { const char *g = gfx_glyph(*s); for (int i = 0; i < 15; i++) if (g[i] == '1') px(b, x + i % 3, y + i / 3, 1); }
 }
 
-static void arrow(uint8_t *b, int x, int y, int sd) {   // the arrow turned to point screen direction sd
-  for (int j = 0; j < 7; j++) for (int i = 0; i < 7; i++) if (ARROW[j][i] == '#') {
+static void arrow_spr(uint8_t *b, int x, int y, int sd, const char **spr) {   // an arrow sprite turned to point sd
+  for (int j = 0; j < 7; j++) for (int i = 0; i < 7; i++) if (spr[j][i] == '#') {
     int ax = sd == 0 ? i : sd == 1 ? 6 - j : sd == 2 ? 6 - i : j, ay = sd == 0 ? j : sd == 1 ? i : sd == 2 ? 6 - j : 6 - i;
     px(b, x + ax, y + ay, 1);
   }
 }
+static void arrow(uint8_t *b, int x, int y, int sd) { arrow_spr(b, x, y, sd, ARROW); }
 void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint8_t *box, const uint8_t *btn,
               const uint8_t *kind, const uint8_t *aux, int f, int rot, int player, const FoldSurface *s, int flags) {
-  (void)aux;
   if (flags & VMX_FLOOR_ONLY) player = -1;
   for (int fy = 0; fy < FOLD_N; fy++) for (int fx = 0; fx < FOLD_N; fx++) {
     int c = f * FOLD_NN + fy * FOLD_N + fx, sx, sy;
@@ -46,7 +47,8 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
     int hasBox = box[c] && !(flags & VMX_FLOOR_ONLY), out = fy == 0 ? 0 : fx == FOLD_N - 1 ? 1 : fy == FOLD_N - 1 ? 2 : fx == 0 ? 3 : -1, nd;
     int e = s && out >= 0 ? fold_step(s, c, out, &nd) : -1;
     if (!target[c] && !btn[c] && !hasBox && c != player) {
-      if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
+      if (kind[c] == FK_ONEWAY) arrow_spr(b, x, y, (aux[c] - rot) & 3, ONEWAY);
+      else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }
     if (btn[c] && !hasBox && c != player) sprite(b, x, y, BUTTON);

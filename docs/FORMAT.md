@@ -21,7 +21,8 @@ The front of square i faces n = v x u (outwards: seen from the front, u points r
 mirror image: corner o + u, axes -u, v.
 
 Tiles: `#` wall, `.` floor, `x` target, `b` box, `B` box on a target, `p` player, `P` player on a target, `o` button,
-`O` box on a button, `~` ice (you and pushed boxes slide across it until something stops you or the ice ends).
+`O` box on a button, `~` ice (you and pushed boxes slide across it until something stops you or the ice ends), `^ > v <` one-way floor
+(entered only heading that way, in the room's own frame; it turns with its cell and mirrors when the cell flips).
 
 A box or the player starting on any other kind of tile: `box <square> <f|b> <x> <y>` / `player <square> <f|b> <x> <y>`
 after the room block. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.
