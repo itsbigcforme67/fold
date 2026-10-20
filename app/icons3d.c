@@ -229,7 +229,7 @@ void icons_stick(int x, int y, int w, int h) {   // the left stick moves the cur
 }
 void icons_dpad(int x, int y, int w, int h) {    // the D-pad turns the working plane
   scene(x, y, w, h, 15, 0.72f, 4.8f);
-  Xf b = xf(v3f(-1.15f, 0, 0));
+  Xf b = rot(rot(xf(v3f(-1.15f, 0, 0)), 2, -32), 0, 20);              // stood up, turned away to the left
   Xf d = rot(rot(b, 1, dpX * 16), 0, -dpY * 16);                        // tipped by a press
   if (!partsTried) load_parts();
   if (partsOk) { Xf dd = d; dd.t = P(&d, 0, 0, part_h(DPAD) * 0.062f / 2); part(&dd, DPAD, 0.062f, 0x2a2b2e, 0); }
