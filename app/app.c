@@ -436,7 +436,7 @@ static uint32_t texbuf[2][56 * 56];
 static uint8_t bits[64 * 64];
 static void room_tex(int f, int rot, uint32_t *out, uint32_t lit, uint32_t dark) {   // the VMX room as a 56x56 texture
   memset(bits, 0, sizeof bits);
-  vmx_room(bits, L.wall, L.target, L.box, L.btn, f, rot, L.player);
+  vmx_room(bits, L.wall, L.target, L.box, L.btn, f, rot, L.player, &S, 0);
   for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) out[y * 56 + x] = bits[(y + 8) * 64 + x + 4] ? lit : dark;
 }
 // ---- the shape in 3D: tiles with their rooms, walls as brick blocks, boxes as crates, the player standing up ------
@@ -497,7 +497,6 @@ static void draw_shape(void) {
   static uint32_t back[8 * 8]; static int init;
   if (!init) { init = 1; for (int i = 0; i < 64; i++) back[i] = ((i % 8) + (i / 8)) & 1 ? 0x24301f : 0x141a12; }
   Tex backTex = { 8, 8, back };
-  static uint8_t none[FOLD_MAXC];               // walls / boxes left out of the tile's own picture: they stand up
   for (int i = 0; i < L.nsq; i++) {
     const FoldSquare *q = &L.sq[i];
     Vec3 o = v3f(q->o[0], q->o[1], q->o[2]), u = v3f(q->u[0], q->u[1], q->u[2]), v = v3f(q->v[0], q->v[1], q->v[2]);
@@ -508,7 +507,7 @@ static void draw_shape(void) {
     Vec3 nf = v3f(q->n[0], q->n[1], q->n[2]); if (f & 1) nf = vsc(nf, -1);
     if (room) {
       memset(bits, 0, sizeof bits);
-      vmx_room(bits, none, L.target, none, L.btn, f, 0, -1);   // floor, targets, buttons
+      vmx_room(bits, L.wall, L.target, L.box, L.btn, f, 0, -1, &S, VMX_FLOOR_ONLY);   // floor, arrows, targets, buttons
       for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) texbuf[0][y * 56 + x] = bits[(y + 8) * 64 + x + 4] ? 0x4fa82a : 0x0d1a0a;
       Tex tx = { 56, 56, texbuf[0] }; gfx_quad(P, &tx, 0, light(nf));
     } else gfx_quad(P, &backTex, 0, light(nf));
@@ -541,7 +540,7 @@ static void draw_vmx(int x, int y, int scale, const uint8_t *b) {   // the VMX w
 }
 static void draw_room_editor(void) {
   memset(bits, 0, sizeof bits);
-  vmx_room(bits, L.wall, L.target, L.box, L.btn, rf, rrot, L.player);
+  vmx_room(bits, L.wall, L.target, L.box, L.btn, rf, rrot, L.player, &S, 0);
   const int S7 = 7, X0 = 24, Y0 = 56;          // the room 7x bigger: a cell is 49 px
   for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S7, Y0 + y * S7, S7, S7, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
   uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
@@ -577,7 +576,7 @@ void app_draw(void) {
     if (vmxWin) {                             // the VMX window: the room under the cursor, as on the handheld
       static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
       int i = find_sq(co, ce1, ce2);
-      if (i >= 0) { int f = sq_face_toward_eye(i); if (sides[i] >> (f & 1) & 1) vmx_room(b, L.wall, L.target, L.box, L.btn, f, 0, L.player); else vmx_text(b, 12, 28, "NO ROOM"); }
+      if (i >= 0) { int f = sq_face_toward_eye(i); if (sides[i] >> (f & 1) & 1) vmx_room(b, L.wall, L.target, L.box, L.btn, f, 0, L.player, &S, 0); else vmx_text(b, 12, 28, "NO ROOM"); }
       else vmx_text(b, 8, 28, "EMPTY CELL");
       draw_vmx(GW - 64 * 2 - 30, GH - 64 * 2 - 52, 2, b);
     }

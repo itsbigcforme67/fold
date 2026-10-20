@@ -8,9 +8,12 @@
 #define VMX_LIT 0x7dff3a
 #define VMX_DARK 0x060a05
 
-// one side's room (face f, turned by rot) into a 64x64 bit buffer; player = cell of the player or -1
+// one side's room (face f, turned by rot) into a 64x64 bit buffer; player = cell of the player or -1. With a
+// surface, an edge cell you can walk out of (floor in the next room, right now) gets an arrow pointing out.
+// VMX_FLOOR_ONLY leaves walls, boxes and the player out (the 3D view stands those up itself).
+enum { VMX_FLOOR_ONLY = 1 };
 void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint8_t *box, const uint8_t *btn,
-              int f, int rot, int player);
+              int f, int rot, int player, const FoldSurface *s, int flags);
 // the whole game screen: room, HUD (level, boxes left, moves), and a pop-up ("A ROOM" / line2) if line2
 void vmx_game(uint8_t *b, const FoldGame *g, int level, const char *line2);
 void vmx_text(uint8_t *b, int x, int y, const char *s);
