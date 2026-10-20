@@ -465,13 +465,13 @@ static void tex_init(void) {
 static void block(Vec3 o, Vec3 du, Vec3 dv, Vec3 n, float h, const Tex *top, const Tex *side, const int *skip) {
   Vec3 b[4] = { o, vadd(o, du), vadd(vadd(o, du), dv), vadd(o, dv) }, t[4], up = vsc(n, h);
   for (int k = 0; k < 4; k++) t[k] = vadd(b[k], up);
-  gfx_quad(t, top, 0, light(n));
+  gfx_quad(t, top, 0xf2f6ff, light(n));
   for (int k = 0; k < 4; k++) {
     if (skip && skip[k]) continue;
     Vec3 out = k == 0 ? vsc(dv, -1) : k == 1 ? du : k == 2 ? dv : vsc(du, -1);   // outward (light only needs the way)
     float ol = sqrtf(out.x * out.x + out.y * out.y + out.z * out.z); out = vsc(out, 1 / ol);
     Vec3 Q[4] = { t[k], t[(k + 1) & 3], b[(k + 1) & 3], b[k] };   // texture's top along the block's top
-    gfx_quad(Q, side, 0, light(out) * 0.85f);
+    gfx_quad(Q, side, 0xf2f6ff, light(out) * 0.85f);
   }
 }
 // Tiles are drawn inset by GAP from every edge, and every joined edge gets a strip between the two tiles: flat between
@@ -491,12 +491,46 @@ static Vec3 inset_corner(const FFrame *F, int k) {   // corner k (TL TR BR BL) o
   float a = (k == 1 || k == 2) ? 1 - GAP : GAP, b = (k >= 2) ? 1 - GAP : GAP;
   return vadd(F->o, vadd(vsc(F->u, a), vsc(F->v, b)));
 }
+// a limb: a thin square rod from a to b, flat coloured
+static void rod(Vec3 a, Vec3 b, float w, uint32_t col) {
+  Vec3 d = vadd(b, vsc(a, -1)), ref = fabsf(d.z) < 0.9f * sqrtf(d.x * d.x + d.y * d.y + d.z * d.z) ? v3f(0, 0, 1) : v3f(1, 0, 0);
+  Vec3 p1 = v3f(d.y * ref.z - d.z * ref.y, d.z * ref.x - d.x * ref.z, d.x * ref.y - d.y * ref.x);
+  float l1 = sqrtf(p1.x * p1.x + p1.y * p1.y + p1.z * p1.z); p1 = vsc(p1, w / 2 / l1);
+  Vec3 p2 = v3f(d.y * p1.z - d.z * p1.y, d.z * p1.x - d.x * p1.z, d.x * p1.y - d.y * p1.x);
+  float l2 = sqrtf(p2.x * p2.x + p2.y * p2.y + p2.z * p2.z); p2 = vsc(p2, w / 2 / l2);
+  Vec3 off[4] = { vadd(p1, p2), vadd(p1, vsc(p2, -1)), vsc(vadd(p1, p2), -1), vadd(vsc(p1, -1), p2) };
+  for (int k = 0; k < 4; k++) {
+    Vec3 o0 = off[k], o1 = off[(k + 1) & 3], mid = vadd(o0, o1);
+    float ml = sqrtf(mid.x * mid.x + mid.y * mid.y + mid.z * mid.z);
+    Vec3 Q[4] = { vadd(a, o0), vadd(a, o1), vadd(b, o1), vadd(b, o0) };
+    gfx_quad(Q, NULL, col, light(vsc(mid, 1 / ml)));
+  }
+}
+// the player as a 3D stick man standing on a cell: corner p, cell edges du dv, up n (unit), cell size cs. He turns
+// round his up axis to face the camera, so his arms and legs always show.
+static void stick_man(Vec3 p, Vec3 du, Vec3 dv, Vec3 n, float cs) {
+  Vec3 base = vadd(p, vsc(vadd(du, dv), 0.5f)), view = vadd(eye, vsc(base, -1));
+  Vec3 side = v3f(view.y * n.z - view.z * n.y, view.z * n.x - view.x * n.z, view.x * n.y - view.y * n.x);   // view x up
+  float sl = sqrtf(side.x * side.x + side.y * side.y + side.z * side.z);
+  side = sl > 1e-5f ? vsc(side, cs / sl) : du;
+  #define AT(x, z) vadd(base, vadd(vsc(side, x), vsc(n, (z) * cs)))
+  const uint32_t col = 0xf2f6ff; const float w = cs * 0.16f;
+  Vec3 hip = AT(0, 0.72f), neck = AT(0, 1.3f), sh = AT(0, 1.18f);
+  rod(AT(-0.3f, 0), hip, w, col); rod(AT(0.3f, 0), hip, w, col);                     // legs
+  rod(hip, neck, w, col);                                                             // body
+  rod(sh, AT(-0.42f, 0.78f), w, col); rod(sh, AT(0.42f, 0.78f), w, col);              // arms
+  float h = 0.21f; Vec3 sd = vsc(side, h), fw = v3f(side.y * n.z - side.z * n.y, side.z * n.x - side.x * n.z, side.x * n.y - side.y * n.x);
+  fw = vsc(fw, h);                                                                    // head: a little cube
+  Vec3 hc = AT(0, 1.5f);
+  block(vadd(hc, vadd(vsc(sd, -1), vadd(vsc(fw, -1), vsc(n, -h * cs)))), vsc(sd, 2), vsc(fw, 2), n, 2 * h * cs, NULL, NULL, NULL);
+  #undef AT
+}
 static void room_3d(int f) {                  // the contents of side f, standing out of the tile
   FFrame F = face_frame(f);
   Vec3 o = inset_corner(&F, 0), n = F.n;
   const float cs = CS;
   Vec3 du = vsc(F.u, cs), dv = vsc(F.v, cs);
-  Tex brick = { 7, 7, brickPx }, bx = { 7, 7, boxPx }, bxOn = { 7, 7, boxOnPx }, man = { 7, 7, manPx }, manTop = { 7, 7, manTopPx };
+  Tex brick = { 7, 7, brickPx }, bx = { 7, 7, boxPx }, bxOn = { 7, 7, boxOnPx };
   for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) {
     int c = f * NN + y * N + x;
     Vec3 p = vadd(o, vadd(vsc(du, (float)x), vsc(dv, (float)y)));
@@ -506,7 +540,7 @@ static void room_3d(int f) {                  // the contents of side f, standin
     } else if (L.box[c]) {
       block(vadd(p, vadd(vsc(du, 0.1f), vsc(dv, 0.1f))), vsc(du, 0.8f), vsc(dv, 0.8f), n, cs * 0.75f, L.target[c] ? &bxOn : &bx, L.target[c] ? &bxOn : &bx, NULL);
     } else if (c == L.player) {
-      block(vadd(p, vadd(vsc(du, 0.22f), vsc(dv, 0.22f))), vsc(du, 0.56f), vsc(dv, 0.56f), n, cs * 1.3f, &manTop, &man, NULL);
+      stick_man(p, du, dv, n, cs);
     }
   }
 }
