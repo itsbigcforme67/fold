@@ -15,3 +15,10 @@ where it grows into:
 
 The original JavaScript version lives in the microgames collection (`ui/games/foldrooms_core.js`); `docs/history/`
 keeps snapshots of it. See `docs/PLAN.md`.
+
+## Status
+
+- `core/`: the C core (C99, no allocation, ~60 KB of state). `make test` replays all 15 levels and undoes every
+  move back to the start; `make parity` checks it against the JavaScript core move by move.
+- `levels/`: the 15 levels as `.fold` files (`docs/FORMAT.md`), exported from the JavaScript version.
+- Next: the PC build (3D view, editor, VMX window), then the original Xbox build. See `docs/PLAN.md`.
