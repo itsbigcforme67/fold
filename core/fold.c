@@ -182,12 +182,15 @@ static int apply_act(FoldGame *g, const FoldAct *a, int back) {   // back: the o
   switch (a->kind) {
     case 'f': flip_square(g, a->sq); return FOLD_FLIPPED;
     case 'r': for (int k = 0; k < (back ? 3 : 1); k++) turn_square(g, a->sq); return FOLD_TURNED;
+    case 'g':                                 // every gate of this group opens / closes
+      for (int c = 0; c < 2 * g->lv->nsq * NN; c++) if (g->kind[c] == FK_GATE && (g->aux[c] & 0x7f) == a->sq) set(g, A_AUX, c, g->aux[c] ^ 0x80);
+      return FOLD_GATES;
     default: set(g, A_MOVED, a->sq, g->moved[a->sq] ^ 1); rebuild(g); return a->kind == 's' ? FOLD_SHIFTED : FOLD_HINGED;
   }
 }
 // where tile c goes when move a happens (or is undone): a flip / turn carries the tiles of its cell
 static int follow(int c, const FoldAct *a, int back) {
-  if ((c / NN) >> 1 != a->sq) return c;
+  if (a->kind == 'g' || (c / NN) >> 1 != a->sq) return c;
   if (a->kind == 'f') return twin(c);
   if (a->kind == 'r') for (int k = 0; k < (back ? 3 : 1); k++) c = rot_cell(c);
   return c;                                   // a shift / hinge moves the cell, not its tiles
@@ -219,6 +222,7 @@ static int enterable(const FoldGame *g, int c, int d, int box) {
   if (c < 0 || g->wall[c]) return 0;
   if (g->kind[c] == FK_ONEWAY && g->aux[c] != d) return 0;   // only in the arrow's way
   if (g->kind[c] == FK_PIT) return box;                       // you can't walk in; a box drops in and fills it
+  if (g->kind[c] == FK_GATE && !(g->aux[c] & 0x80)) return 0; // a closed gate (whatever stands in it can still leave)
   return 1;
 }
 // a box arrives at c heading d: into a pit it drops (the pit becomes floor, the box is gone; returns -1); on ice it
@@ -300,9 +304,9 @@ int fold_solved(const FoldGame *g) {
 static int parse_act(const char *w, FoldAct *a) {
   memset(a, 0, sizeof *a);
   a->kind = w[0];
-  if (!strchr("frsh", a->kind)) return 0;
+  if (!strchr("frshg", a->kind)) return 0;
   char *end; long i = strtol(w + 1, &end, 10);
-  if (end == w + 1 || i < 0 || i >= FOLD_MAXSQ) return 0;
+  if (end == w + 1 || i < 0 || i >= FOLD_MAXSQ || (a->kind == 'g' && (i < 1 || i > 127))) return 0;
   a->sq = (uint8_t)i;
   if (a->kind == 's' || a->kind == 'h') {
     if (*end != ':' || !end[1]) return 0;
@@ -328,7 +332,8 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<_123456789=", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_123456789=|:", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch == '|' || ch == ':') { lv->kind[c] = FK_GATE; lv->aux[c] = ch == ':' ? 0x80 : 0; }   // its group: a gate line
         if (ch == '=') { if (lv->nbtn == FOLD_MAXBTN) FAIL("line %d: too many buttons", lineno); lv->kind[c] = FK_PLATE; lv->btn[c] = (uint8_t)++lv->nbtn; }
         if (ch >= '1' && ch <= '9') { lv->kind[c] = FK_TELE; lv->aux[c] = (uint8_t)(ch - '0'); }
         if (ch == '_') lv->kind[c] = FK_PIT;
@@ -371,10 +376,17 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       while (sscanf(w, " %15s%n", tok, &n) == 1) {
         if (lv->nact[b - 1] == FOLD_MAXACT) FAIL("line %d: too many moves", lineno);
         FoldAct *a = &lv->act[b - 1][lv->nact[b - 1]++];
-        if (!parse_act(tok, a) || a->sq >= lv->nsq) FAIL("line %d: bad move '%s'", lineno, tok);
+        if (!parse_act(tok, a) || (a->kind != 'g' && a->sq >= lv->nsq)) FAIL("line %d: bad move '%s'", lineno, tok);
         if ((a->kind == 's' || a->kind == 'h') && !lv->geo[a->sq]) { lv->geo[a->sq] = 1; lv->geoAct[a->sq] = *a; }
         w += n;
       }
+    }
+    else if (!strcmp(word, "gate")) {           // a gate's group (the button that works it)
+      int i, x, y, k; char side;
+      if (sscanf(rest, "%d %c %d %d %d", &i, &side, &x, &y, &k) != 5 || i < 0 || i >= lv->nsq || x < 0 || y < 0 || x >= N || y >= N || k < 0 || k > 127) FAIL("line %d: gate <square> <f|b> <x> <y> <button>", lineno);
+      int c = (2 * i + (side == 'b')) * NN + y * N + x;
+      if (lv->kind[c] != FK_GATE) FAIL("line %d: no gate there", lineno);
+      lv->aux[c] = (uint8_t)((lv->aux[c] & 0x80) | k);
     }
     else if (!strcmp(word, "box") || !strcmp(word, "player")) {   // a box / the player on any tile
       int i, x, y; char side;

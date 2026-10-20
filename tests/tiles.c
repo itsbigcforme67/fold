@@ -71,6 +71,14 @@ int main(void) {
   moves("r"); tests++; { int ok = g.turns[1] == 1; printf("%-44s %s\n", "plate: a box on it turns the cell", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   moves("r"); tests++; { int ok = g.turns[1] == 0; printf("%-44s %s\n", "plate: pushed off, the cell turns back", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   expect("plate: undo through press and release", CELL(0, 4, 2), (int[]){ CELL(0, 5, 2) }, 1);
+  // ---- gate + switch ----
+  load(level("########\n#......#\n#.pbo..#\n#......#\n#..|...#\n#......#\n#......#\n########\ngate 0 f 3 4 1\nlink 1 g1\n"));
+  { FoldGame t = g; fold_move(&t, 2); fold_move(&t, 2); tests++; int ok = t.p == CELL(0, 2, 4); printf("%-44s %s\n", "gate: closed, you can't go through", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  moves("r" "ldrdd"); expect("gate: a switch opens it", CELL(0, 3, 5), (int[]){ CELL(0, 4, 2) }, 1);
+  // a plate holds it open only while a box is on it
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#..|...#\n#......#\n#......#\n########\ngate 0 f 3 4 1\nlink 1 g1\n"));
+  moves("r"); tests++; { int ok = g.aux[CELL(0, 3, 4)] & 0x80; printf("%-44s %s\n", "gate: a plate opens it", ok ? "ok" : "WRONG"); if (!ok) fails++; }
+  moves("r"); tests++; { int ok = !(g.aux[CELL(0, 3, 4)] & 0x80); printf("%-44s %s\n", "gate: and it shuts when the box leaves", ok ? "ok" : "WRONG"); if (!ok) fails++; }
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

@@ -18,6 +18,8 @@ static const char *ONEWAY[7] = { "...#...", "..###..", ".#####.", "#######", "..
 static const char *PIT[7] = { "#######", "#.#.#.#", "##.#.##", "#.#.#.#", "##.#.##", "#.#.#.#", "#######" };
 static const char *TELE[7] = { ".#####.", "#.....#", "#.###.#", "#.#.#.#", "#.###.#", "#.....#", ".#####." };
 static const char *PLATE[7] = { ".......", ".#####.", ".#####.", ".##.##.", ".#####.", ".#####.", "......." };
+static const char *GATE_SHUT[7] = { "#######", "#.#.#.#", "#.#.#.#", "#.#.#.#", "#.#.#.#", "#.#.#.#", "#######" };
+static const char *GATE_OPEN[7] = { "#.....#", ".......", ".......", ".......", ".......", ".......", "#.....#" };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -53,6 +55,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
       if (kind[c] == FK_ONEWAY) arrow_spr(b, x, y, (aux[c] - rot) & 3, ONEWAY);
       else if (kind[c] == FK_PIT) sprite(b, x, y, PIT);
       else if (kind[c] == FK_TELE) sprite(b, x, y, TELE);
+      else if (kind[c] == FK_GATE) sprite(b, x, y, aux[c] & 0x80 ? GATE_OPEN : GATE_SHUT);
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }

@@ -51,8 +51,8 @@ static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
 static int rf, rrot, rx = 3, ry = 3, item = 1;
-static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE" };
-#define NITEMS 11
+static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE" };
+#define NITEMS 12
 // settings / menu
 static int prow, mrow, fileIx, vmxWin = 1, propSq, propsBack = M_SHAPE;
 // playtest
@@ -122,6 +122,11 @@ static void build(FoldLevel *out) {
     out->act[trig[i] - 1][out->nact[trig[i] - 1]++] = a;
     if ((a.kind == 's' || a.kind == 'h') && !out->geo[i]) { out->geo[i] = 1; out->geoAct[i] = a; }
   }
+  for (int b = 1; b <= n; b++) {              // a button works the gates that name it
+    int any = 0;
+    for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.kind[c] == FK_GATE && !L.wall[c] && (L.aux[c] & 0x7f) == b) any = 1;
+    if (any && out->nact[b - 1] < FOLD_MAXACT) { FoldAct a; memset(&a, 0, sizeof a); a.kind = 'g'; a.sq = (uint8_t)b; out->act[b - 1][out->nact[b - 1]++] = a; }
+  }
   out->nsol = 0;
 }
 
@@ -136,11 +141,12 @@ int app_save(const char *p) {
     if (!(sides[fc >> 1] >> (fc & 1) & 1)) continue;
     fprintf(f, "room %d %c\n", fc >> 1, fc & 1 ? 'b' : 'f');
     for (int y = 0; y < N; y++) { for (int x = 0; x < N; x++) { int c = fc * NN + y * N + x;
-      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' :   // special floors: a box /
+      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' : L.kind[c] == FK_GATE ? (L.aux[c] & 0x80 ? ':' : '|') :   // special floors: a box /
         // the player on them goes on its own line
         L.wall[c] ? '#' : L.box[c] ? (L.target[c] ? 'B' : B.btn[c] ? 'O' : 'b') : c == L.player ? (L.target[c] ? 'P' : 'p') : L.target[c] ? 'x' : B.btn[c] ? 'o' : '.';
       fputc(ch, f); } fputc('\n', f); }
     for (int c = fc * NN; c < (fc + 1) * NN; c++) if (L.kind[c] && !L.wall[c]) {
+      if (L.kind[c] == FK_GATE && (L.aux[c] & 0x7f)) fprintf(f, "gate %d %c %d %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N, L.aux[c] & 0x7f);
       if (L.box[c]) fprintf(f, "box %d %c %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N);
       if (c == L.player) fprintf(f, "player %d %c %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N);
     }
@@ -148,7 +154,7 @@ int app_save(const char *p) {
   for (int b = 0; b < B.nbtn; b++) if (B.nact[b]) {
     fprintf(f, "link %d", b + 1);
     for (int k = 0; k < B.nact[b]; k++) { const FoldAct *a = &B.act[b][k];
-      if (a->kind == 's' || a->kind == 'h') fprintf(f, " %c%d:%s", a->kind, a->sq, a->spec); else fprintf(f, " %c%d", a->kind, a->sq); }
+      if (a->kind == 's' || a->kind == 'h') fprintf(f, " %c%d:%s", a->kind, a->sq, a->spec); else fprintf(f, " %c%d", a->kind, a->sq); }   // g<k> too
     fputc('\n', f);
   }
   fclose(f);
@@ -164,7 +170,7 @@ int app_load(const char *p) {
     sides[i] = 0;
     for (int s = 0; s < 2; s++) for (int c = (2 * i + s) * NN; c < (2 * i + s + 1) * NN; c++) if (!L.wall[c]) { sides[i] |= 1 << s; break; }
   }
-  for (int b = 0; b < L.nbtn; b++) for (int k = 0; k < L.nact[b]; k++) { const FoldAct *a = &L.act[b][k]; func[a->sq] = *a; trig[a->sq] = b + 1; }
+  for (int b = 0; b < L.nbtn; b++) for (int k = 0; k < L.nact[b]; k++) { const FoldAct *a = &L.act[b][k]; if (a->kind == 'g') continue; func[a->sq] = *a; trig[a->sq] = b + 1; }
   for (int c = 0; c < 2 * L.nsq * NN; c++) L.btn[c] = L.btn[c] ? 1 : 0;
   // cursor on square 0, flat in its plane
   const FoldSquare *q = &L.sq[0];
@@ -315,6 +321,10 @@ static void paint(int c, int what) {
       if (L.kind[c] == FK_ONEWAY) L.aux[c] = (uint8_t)((L.aux[c] + 1) & 3); else { L.kind[c] = FK_ONEWAY; L.aux[c] = (uint8_t)rrot; }
       break;
     case 8: if (c == L.player) return; L.wall[c] = 0; L.btn[c] = L.box[c] = L.target[c] = 0; L.kind[c] = L.kind[c] == FK_PIT ? FK_FLOOR : FK_PIT; break;
+    case 11:                                  // gate: placed shut; A again opens / shuts it (how it starts); Y picks its button
+      L.wall[c] = 0; L.btn[c] = 0;
+      if (L.kind[c] == FK_GATE) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0; say("Y ON A GATE PICKS ITS BUTTON"); }
+      break;
     case 10:                                  // pressure plate: a button that holds only while a box is on it
       L.wall[c] = 0;
       if (L.kind[c] == FK_PLATE) { L.kind[c] = FK_FLOOR; L.btn[c] = 0; } else { L.kind[c] = FK_PLATE; L.btn[c] = 1; }
@@ -353,7 +363,14 @@ static void room_frame(const Pad *p) {
   if (pressed(p, PAD_A)) paint(screen_to_cell(rx, ry), item);
   if (pressed(p, PAD_B)) paint(screen_to_cell(rx, ry), 1);
   if (pressed(p, PAD_X)) mode = M_SHAPE;
-  if (pressed(p, PAD_Y)) { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; }
+  if (pressed(p, PAD_Y)) {
+    int c = screen_to_cell(rx, ry);
+    if (L.kind[c] == FK_GATE && !L.wall[c]) {   // a gate: which button works it (0 = none)
+      int n = nbuttons(), k = ((L.aux[c] & 0x7f) + 1) % (n + 1);
+      L.aux[c] = (uint8_t)((L.aux[c] & 0x80) | k);
+      char m[40]; if (k) snprintf(m, sizeof m, "GATE WORKED BY BUTTON %d", k); else snprintf(m, sizeof m, "GATE: NO BUTTON"); say(m);
+    } else { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; }
+  }
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
 }
 
@@ -561,13 +578,19 @@ static void room_3d(int f) {                  // the contents of side f, standin
   Vec3 o = inset_corner(&F, 0), n = F.n;
   const float cs = CS;
   Vec3 du = vsc(F.u, cs), dv = vsc(F.v, cs);
-  Tex brick = { 7, 7, brickPx }, bx = { 7, 7, boxPx }, bxOn = { 7, 7, boxOnPx };
+  static uint32_t steelPx[1] = { 0x9fb4c8 };
+  Tex brick = { 7, 7, brickPx }, bx = { 7, 7, boxPx }, bxOn = { 7, 7, boxOnPx }, steel = { 1, 1, steelPx };
   for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) {
     int c = f * NN + y * N + x;
     Vec3 p = vadd(o, vadd(vsc(du, (float)x), vsc(dv, (float)y)));
     if (L.wall[c]) {
       int skip[4] = { y > 0 && L.wall[c - N], x < N - 1 && L.wall[c + 1], y < N - 1 && L.wall[c + N], x > 0 && L.wall[c - 1] };
       block(p, du, dv, n, GAP, &brick, &brick, skip);
+    } else if (L.kind[c] == FK_GATE && !(L.aux[c] & 0x80)) {   // a shut gate: a fence of bars
+      for (int k = 0; k < 4; k++) block(vadd(p, vadd(vsc(du, 0.12f + 0.22f * k), vsc(dv, 0.4f))), vsc(du, 0.1f), vsc(dv, 0.2f), n, GAP * 1.2f, &steel, &steel, NULL);
+      block(vadd(p, vadd(vsc(du, 0.05f), vsc(dv, 0.38f))), vsc(du, 0.9f), vsc(dv, 0.24f), vsc(n, 1), GAP * 0.18f, &steel, &steel, NULL);
+      if (L.box[c]) block(vadd(p, vadd(vsc(du, 0.1f), vsc(dv, 0.1f))), vsc(du, 0.8f), vsc(dv, 0.8f), n, cs * 0.75f, L.target[c] ? &bxOn : &bx, L.target[c] ? &bxOn : &bx, NULL);
+      if (c == L.player) stick_man(p, du, dv, n, cs);
     } else if (L.box[c]) {
       block(vadd(p, vadd(vsc(du, 0.1f), vsc(dv, 0.1f))), vsc(du, 0.8f), vsc(dv, 0.8f), n, cs * 0.75f, L.target[c] ? &bxOn : &bx, L.target[c] ? &bxOn : &bx, NULL);
     } else if (c == L.player) {
@@ -622,6 +645,7 @@ static void draw_shape(void) {
                                 k == FK_PIT ? (lit ? 0x1a2a14 : 0x000000) :           // pit: a black hole
                                 k == FK_TELE ? (lit ? 0xe070ff : 0x200a2a) :          // teleporter: violet
                                 k == FK_PLATE ? (lit ? 0xff9a3c : 0x2a1606) :         // plate: orange
+                                k == FK_GATE ? (lit ? 0x9fb4c8 : 0x10161c) :          // gate: steel
                                 lit ? 0x4fa82a : 0x0d1a0a;
       }
       Tex tx = { 56, 56, texbuf[0] }; gfx_quad(P, &tx, 0, light(nf));

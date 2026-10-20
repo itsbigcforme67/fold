@@ -26,7 +26,9 @@ Tiles: `#` wall, `.` floor, `x` target, `b` box, `B` box on a target, `p` player
 `_` pit (you can't walk in; a box pushed or sliding in fills it and it becomes floor), `1`-`9` teleporter pad
 (stepping on one puts you on the other pad with the same digit, same heading; a pushed box goes across too if the
 far pad is free), `=` pressure plate (a button that holds only while a box is on it: when the box leaves, its moves
-undo; numbered with the buttons).
+undo; numbered with the buttons), `|` gate (closed) / `:` gate (open): a wall while closed; opened and closed by the
+link move `g<k>`, which works every gate of group k (`gate <square> <f|b> <x> <y> <k>`; the editor uses the number
+of the button that works it).
 
 A box or the player starting on any other kind of tile: `box <square> <f|b> <x> <y>` / `player <square> <f|b> <x> <y>`
 after the room block. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.
@@ -34,5 +36,6 @@ after the room block. A side with no `room` block is all wall. The outer ring of
 Link entries, applied in order: `f<i>` flip square i (each side's contents move to the same spot on the other
 side); `r<i>` turn square i a quarter clockwise as seen from the front; `s<i>:<d>` shift square i one unit, d = u d l
 r (in its own frame) or o i (out / in along its normal); `h<i>:<e><+|->` hinge square i 90 degrees about its edge e
-(0 top, 1 right, 2 bottom, 3 left) towards its front (+) or back (-). Shifts and hinges toggle: the next press puts
+(0 top, 1 right, 2 bottom, 3 left) towards its front (+) or back (-); `g<k>` open / close the gates of group k.
+Shifts and hinges toggle: the next press puts
 the square back. A square has at most one shift or hinge. No move may leave two squares in the same place.
