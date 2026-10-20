@@ -1,0 +1,32 @@
+fold 1
+name LIGHT TEST
+square 0 0 0  0 1 0  1 0 0
+square 0 0 1  0 1 0  0 0 -1
+room 0 f
+#......#
+#.pb=..#
+#......#
+#..b=..#
+#....@.#
+#|||$..#
+#.....x#
+########
+signal 0 f 4 1 1
+signal 0 f 4 3 2
+drive 0 f 5 4 3
+signal 0 f 5 4 4
+drive 0 f 1 5 4
+drive 0 f 2 5 4
+drive 0 f 3 5 4
+drive 0 f 4 5 5
+room 1 f
+########
+#......#
+#......#
+#......#
+#......#
+#......#
+#......#
+###..###
+logic 3 and 1 2
+logic 5 not 4

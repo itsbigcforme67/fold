@@ -23,6 +23,8 @@ static const char *GATE_OPEN[7] = { "#.....#", ".......", ".......", ".......", 
 static const char *KEY[7] = { ".......", ".###...", "##.####", ".###.##", ".......", ".......", "......." };
 static const char *LOCK[7] = { "#######", "#######", "###.###", "##...##", "###.###", "###.###", "#######" };
 static const char *GRATE[7] = { "#.#.#.#", ".......", "#.#.#.#", ".......", "#.#.#.#", ".......", "#.#.#.#" };
+static const char *LIGHT_OFF[7] = { "..###..", ".#...#.", ".#...#.", "..#.#..", "..###..", "..###..", "......." };
+static const char *LIGHT_ON[7] = { "#.###.#", ".#####.", ".#####.", "#.###.#", "..###..", "..###..", "......." };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -54,7 +56,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
     }
     int hasBox = box[c] && !(flags & VMX_FLOOR_ONLY), out = fy == 0 ? 0 : fx == FOLD_N - 1 ? 1 : fy == FOLD_N - 1 ? 2 : fx == 0 ? 3 : -1, nd;
     int e = s && out >= 0 ? fold_step(s, c, out, &nd) : -1;
-    if (!target[c] && !btn[c] && !hasBox && c != player) {
+    if (!target[c] && (!btn[c] || kind[c] == FK_LIGHT) && !hasBox && c != player) {
       if (kind[c] == FK_ONEWAY) arrow_spr(b, x, y, (aux[c] - rot) & 3, ONEWAY);
       else if (kind[c] == FK_PIT) sprite(b, x, y, PIT);
       else if (kind[c] == FK_TELE) sprite(b, x, y, TELE);
@@ -62,6 +64,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
       else if (kind[c] == FK_KEY) sprite(b, x, y, KEY);
       else if (kind[c] == FK_LOCK) sprite(b, x, y, LOCK);
       else if (kind[c] == FK_GRATE) sprite(b, x, y, GRATE);
+      else if (kind[c] == FK_LIGHT) sprite(b, x, y, aux[c] & 0x80 ? LIGHT_ON : LIGHT_OFF);
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }

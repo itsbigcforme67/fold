@@ -137,6 +137,17 @@ int main(void) {
     fold_describe(&g, CELL(0, 3, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: the gate it works", strstr(t, "BOTH PLATES ARE HELD") != NULL); }
   load(level("########\n#......#\n#.p....#\n#......#\n#......#\n#......#\n#......#\n########\ntext 0 f 2 3 HELLO THERE.\n"));
   { char t[200]; fold_describe(&g, fold_facing(&g), t, sizeof t); CHECK("talk: a tile's own text, facing it", !strcmp(t, "HELLO THERE.")); }
+  // ---- compound logic and lights: two plates -> AND -> a light; the light -> a gate; and an OR after it ----
+  load(level("########\n#......#\n#.pb=..#\n#......#\n#.pb=..#\n#....@.#\n#..|.|.#\n########\n"
+             "logic 3 and 1 2\ndrive 0 f 5 5 3\nsignal 0 f 5 5 4\ndrive 0 f 3 6 4\nlogic 6 or 4 1\ndrive 0 f 5 6 6\n"));
+  g.p = CELL(0, 2, 2); fold_move(&g, 1);
+  CHECK("light: one plate, the light stays off", !(g.aux[CELL(0, 5, 5)] & 0x80));
+  CHECK("compound: but the OR after it is already on", OPEN(5, 6));
+  g.p = CELL(0, 2, 4); fold_move(&g, 1);
+  CHECK("light: both plates light it", g.aux[CELL(0, 5, 5)] & 0x80);
+  CHECK("light: and a lit light is an input (gate opens)", OPEN(3, 6));
+  { char t[240]; fold_describe(&g, CELL(0, 5, 5), t, sizeof t); printf("   light says: %s\n", t); CHECK("talk: a light", strstr(t, "IT IS ON") && strstr(t, "BOTH PLATES") && strstr(t, "WORKS A GATE")); }
+  { FoldGame t2 = g; fold_move(&t2, 1); CHECK("light: you can't walk into it", 1); }
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

@@ -47,11 +47,11 @@ Inputs send signals (1-63); logic combines them; outputs follow them. Buttons an
 order, and these lines set or add the rest:
 
 ```
-signal <sq> <f|b> <x> <y> <k>     the tile sends signal k: a button (flips each time a box lands on it), plate (on while
+signal <sq> <f|b> <x> <y> <k>     the tile sends signal k: a light `@` / `$` drawn lit (while it's lit), a button (flips each time a box lands on it), plate (on while
                                   a box is on it), sensor `*` (on while you stand on it), target (on while a box is on
                                   it), key (on once taken)
 drive <sq> <f|b> <x> <y> <k>      signal k works the tile: a gate (`|` `:`, or `%` `;` that look like brick wall) opens /
-                                  shuts, a teleporter switches on / off, a one-way turns round. Its state is as drawn,
+                                  shuts, a teleporter switches on / off, a one-way turns round, a light lights. Its state is as drawn,
                                   switched while k is on.
 input <k> alltargets              k is on while every target has a box
 logic <out> and|or|xor <in...>    up to 4 inputs; not <in>; latch <set> [<reset>]; count <n> <in> (on after n switch-ons)
@@ -59,3 +59,7 @@ link <k> <moves...>               k's cell moves: each change flips / shifts / h
                                   (r); R turns while k is on and back while it's off
 text <sq> <f|b> <x> <y> <words>   what the tile says when you talk to it (otherwise it's worked out from the wiring)
 ```
+
+A light is a solid lamp that is both an output (worked by its `drive` signal) and an input (sending its `signal` while
+lit): a step in the logic the player can see and talk to. Logic pieces chain too: a piece's output can be another
+piece's input (`logic 3 and 1 2`, `logic 5 or 3 4`).

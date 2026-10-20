@@ -26,12 +26,13 @@
 
 // tile kinds (kind[]): what a floor tile is, beyond plain floor. aux[] holds its value (a one-way's direction in its
 // cell's frame, ...). Walls, targets, boxes and buttons have their own arrays.
-enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6, FK_KEY = 7, FK_LOCK = 8, FK_GRATE = 9, FK_SENSOR = 10 };
+enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6, FK_KEY = 7, FK_LOCK = 8, FK_GRATE = 9, FK_SENSOR = 10, FK_LIGHT = 11 };
 // ONEWAY: aux = the only way in (0 up 1 right 2 down 3 left). TELE: aux = its pair (1-9; the two pads with it).
 // GATE: aux 0x80 = open, 0x40 = looks like a brick wall; a closed gate is a wall to anything entering.
 // KEY: picked up when you step on it (aux 0x80 = taken). LOCK: a wall, unless you walk in holding a key (it's used, the
 // lock is floor). GRATE: you can cross it, boxes can't. SENSOR: floor that is on while you stand on it.
-// TELE aux 0x80 = switched off (pair in the low bits).
+// TELE aux 0x80 = switched off (pair in the low bits). LIGHT: a solid lamp, aux 0x80 = lit; worked by drv[] and sending
+// btn[] while lit, so a light is an output and an input at once (a visible step in the logic).
 //
 // Signals (1..63): btn[c] is the signal a tile SENDS: a button (plain floor) flips its signal each time a box lands on
 // it; a PLATE is on while a box is on it; a SENSOR while you stand on it; a target while a box is on it; a KEY once
