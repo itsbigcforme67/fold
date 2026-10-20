@@ -957,11 +957,12 @@ static void draw_room_editor(void) {
   gfx_text5(px0 + 14, py0 + 270, 2, C_HI, ITEMS[item]);
   gfx_hint(px0 + 4, py0 + 312, "L", ""); gfx_hint(px0 + 34, py0 + 312, "R", "PICK A TILE");
 }
-// ---- the level view's layout (the owner's sketch, 2026-10-20): the void, the level's name, a row of tabs, and the
+// ---- the level view's layout (the owner's sketch, 2026-10-20): a row of tabs along the top, the green scene, and the
 // controls as pictures on brushed-metal panels in the bottom corners
 static const char *TABS[] = { "LEVEL", "CELL", "WIRING", "TEST", "SAVE", "LOAD" };
-static void tab_row(int current) {
-  const int y0 = 54, y1 = 84, n = 6, W = GW / n;
+static void tab_row(int current) {            // along the top of the screen
+  const int y0 = 4, y1 = 34, n = 6, W = GW / n;
+  gfx_dim(0, 0, GW, y1 + 2, 0.45f);
   uint32_t line = 0xc8c8c8;
   gfx_thick(0, y0, GW, y0, 2, line);
   for (int k = 0; k < n; k++) {
@@ -1064,13 +1065,11 @@ void app_draw(void) {
     if (mode == M_ROOM) hints(h, 6);
   } else {
     if (!framesTried) load_frames();
-    gfx_clear(0x000000);                      // the void
-    gfx_view_offset(0, 40);
+    gfx_view_offset(0, 16);                   // (the green gradient behind it is drawn above)
     draw_shape();
     gfx_view_offset(0, 0);
-    gfx_text5(12, 20, 1, 0x6f786a, L.name);   // the top is left empty (the sketch's "void"); the name, small
     tab_row(mode == M_WIRE ? 2 : mode == M_MENU ? 3 : 0);
-    snprintf(s, sizeof s, "%d CELLS", L.nsq); gfx_text5(GW - 12 - gfx_text5_w(1, s), 92, 1, 0x6f786a, s);
+    snprintf(s, sizeof s, "%s   %d CELLS", L.name, L.nsq); gfx_text5(GW - 12 - gfx_text5_w(1, s), 44, 1, 0x7f8a78, s);
     if (mode == M_SHAPE) level_controls();
     if (vmxWin) {                             // the VMX window: the cell under the cursor, as on the handheld
       static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
