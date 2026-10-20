@@ -22,7 +22,7 @@ parity: build/levels
 	@if cmp -s build/trace_js.txt build/trace_c.txt; then echo "parity: C and JavaScript agree on every move ($$(grep -vc '^#' build/trace_c.txt) moves)"; \
 	else echo "parity: DIFFERENT"; diff build/trace_js.txt build/trace_c.txt | head -20; exit 1; fi
 
-APP = app/app.c app/gfx.c app/vmx.c core/fold.c
+APP = app/app.c app/gfx.c app/vmx.c app/icons3d.c core/fold.c
 APPH = app/app.h app/gfx.h app/vmx.h core/fold.h
 
 build/fold_headless: app/main_headless.c $(APP) $(APPH)

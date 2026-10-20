@@ -30,6 +30,8 @@ void gfx_zclear(void);
 // a quad p0 p1 p2 p3 (in order round it), textured with uv (0,0) at p0, (1,0) at p1, (1,1) at p2; or flat colour
 // if t is NULL. shade multiplies the colour (0..1). Drawn with depth test; depth bias pulls lines / overlays forward.
 void gfx_quad(const Vec3 p[4], const Tex *t, uint32_t colour, float shade);
+// a triangle shaded smoothly: sh = light at each corner (0..1 darkens, 1..2 shines towards white)
+void gfx_tri_lit(const Vec3 p[3], const float sh[3], uint32_t colour);
 void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick);
 int gfx_project(Vec3 p, float *sx, float *sy);                          // 0 if behind the camera
 

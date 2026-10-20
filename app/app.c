@@ -13,6 +13,7 @@
 #include "app.h"
 #include "gfx.h"
 #include "vmx.h"
+#include "icons3d.h"
 #include "../core/fold.h"
 #include <math.h>
 #include <stdio.h>
@@ -616,6 +617,7 @@ void app_init(const char *dir) { snprintf(levelsDir, sizeof levelsDir, "%s", dir
 int app_quit(void) { return quit; }
 void app_frame(const Pad *p) {
   t++; if (msgT) msgT--;
+  icons_update(p);
   camera();
   switch (mode) {
     case M_SHAPE: shape_frame(p); break;
@@ -811,7 +813,7 @@ static void draw_ground(void) {               // a soft grid fading into the dis
   gfx_shadow_end(0.55f);
 }
 static void draw_shape(void) {
-  gfx_zclear(); tex_init();
+  gfx_zclear(); tex_init(); gfx_camera(VPm);   // (the icons set their own cameras after this)
   gfx_fog(0x070b06, dist * 0.9f, dist * 3.2f);
   draw_ground();
   static uint32_t back[8 * 8]; static int init;
@@ -973,60 +975,11 @@ static void tab_row(int current) {            // along the top of the screen
     gfx_text5(x0 + W / 2 - gfx_text5_w(1, TABS[k]) / 2 - 2, y0 + 12, 1, k == current ? 0xe8ffd8 : 0x9aa294, TABS[k]);
   }
 }
-static void curved_arrow(int cx, int cy, int r, float a0, float a1, uint32_t c) {   // an arc with a head at a1
-  int px = 0, py = 0;
-  for (int i = 0; i <= 16; i++) {
-    float a = a0 + (a1 - a0) * i / 16; int x = cx + (int)(r * cosf(a)), y = cy + (int)(r * sinf(a));
-    if (i) gfx_thick(px, py, x, y, 4, c);
-    px = x; py = y;
-  }
-  float a = a1, dx = -sinf(a) * (a1 > a0 ? 1 : -1), dy = cosf(a) * (a1 > a0 ? 1 : -1);   // along the arc
-  gfx_tri2(px + (int)(dx * 7), py + (int)(dy * 7), px + (int)(cosf(a) * 6), py + (int)(sinf(a) * 6), px - (int)(cosf(a) * 6), py - (int)(sinf(a) * 6), c);
-}
-static void stick_icon(int cx, int cy, int r) {
-  gfx_ring(cx, cy, r, 4, 0x101010); gfx_ring(cx, cy, r * 6 / 10, 3, 0x101010);
-}
-static void level_controls(void) {
-  const uint32_t ink = 0x101010, yel = 0xf2e01c;
-  // bottom left: the stick moves the cursor over the grid
-  gfx_metal_panel(0, 296, 150, 92, 14, 2 | 4);
-  stick_icon(44, 342, 22);
-  gfx_tri2(44, 308, 36, 318, 52, 318, yel); gfx_tri2(44, 376, 36, 366, 52, 366, yel);
-  gfx_tri2(10, 342, 20, 334, 20, 350, yel); gfx_tri2(78, 342, 68, 334, 68, 350, yel);
-  for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) {                // a little grid, the cursor on its middle
-    int x = 92 + i * 17 + (2 - j) * 3, y = 318 + j * 16;
-    gfx_frame(x, y, 14, 13, 0x52c41a); gfx_frame(x + 1, y + 1, 12, 11, 0x52c41a);
-  }
-  { int x = 92 + 17 + 3, y = 318 + 16; uint32_t cy = 0x22d8e0;
-    gfx_rect(x - 2, y - 2, 6, 2, cy); gfx_rect(x - 2, y - 2, 2, 6, cy); gfx_rect(x + 11, y - 2, 6, 2, cy); gfx_rect(x + 15, y - 2, 2, 6, cy);
-    gfx_rect(x - 2, y + 13, 6, 2, cy); gfx_rect(x - 2, y + 9, 2, 6, cy); gfx_rect(x + 11, y + 13, 6, 2, cy); gfx_rect(x + 15, y + 9, 2, 6, cy); }
-  // below it: the D-pad turns the working plane
-  gfx_metal_panel(0, 398, 138, 82, 14, 2);
-  gfx_ring(38, 442, 22, 4, ink);
-  gfx_disc(38, 428, 4, ink); gfx_disc(38, 456, 4, ink); gfx_disc(24, 442, 4, ink); gfx_disc(52, 442, 4, ink);
-  curved_arrow(38, 442, 30, -2.4f, -1.0f, yel); curved_arrow(38, 442, 30, 0.8f, 2.2f, yel);
-  { int x = 82, y = 416;                                                    // three planes crossing
-    gfx_frame(x + 8, y + 2, 34, 40, 0xe02020); gfx_frame(x + 4, y + 6, 34, 38, 0x2040e0);
-    gfx_thick(x - 2, y + 26, x + 22, y + 18, 2, 0x52c41a); gfx_thick(x + 22, y + 18, x + 50, y + 26, 2, 0x52c41a);
-    gfx_thick(x + 50, y + 26, x + 24, y + 34, 2, 0x52c41a); gfx_thick(x + 24, y + 34, x - 2, y + 26, 2, 0x52c41a); }
-  // bottom right: the face buttons, Duke-style (Y X B A)
-  gfx_metal_panel(GW - 128, 250, 128, 142, 14, 1 | 8);
-  struct { int x, y; uint32_t c; const char *l; } fb[4] = { { GW - 80, 286, 0xe8d020, "Y" }, { GW - 98, 330, 0x2050e0, "X" },
-                                                            { GW - 36, 322, 0xe02828, "B" }, { GW - 58, 364, 0x52d020, "A" } };
-  for (int k = 0; k < 4; k++) {
-    gfx_ellipse(fb[k].x, fb[k].y, 10, 15, -0.35f, ink);
-    gfx_ellipse(fb[k].x, fb[k].y, 8, 13, -0.35f, fb[k].c);
-    gfx_text5(fb[k].x - 2, fb[k].y - 3, 1, ink, fb[k].l);
-  }
-  // below it: the camera turns with the right stick (and L / R)
-  gfx_metal_panel(GW - 168, 400, 168, 80, 14, 1);
-  { int x = GW - 156, y = 412;                                             // a film camera
-    gfx_disc(x + 14, y + 10, 9, ink); gfx_disc(x + 14, y + 10, 7, 0xa8acb0); gfx_disc(x + 36, y + 10, 9, ink); gfx_disc(x + 36, y + 10, 7, 0xa8acb0);
-    gfx_frame(x + 6, y + 22, 40, 20, ink); gfx_frame(x + 7, y + 23, 38, 18, ink);
-    gfx_tri2(x + 6, y + 32, x - 6, y + 22, x - 6, y + 46, ink); gfx_thick(x + 26, y + 42, x + 26, y + 60, 3, ink); }
-  gfx_tri2(GW - 92, 440, GW - 80, 432, GW - 80, 448, yel); gfx_rect(GW - 80, 437, 10, 6, yel);   // "turns"
-  stick_icon(GW - 38, 440, 20);
-  curved_arrow(GW - 38, 440, 28, -2.2f, -0.9f, yel); curved_arrow(GW - 38, 440, 28, 0.9f, 2.2f, yel);
+static void level_controls(void) {   // the metal panels in the corners, each with its live 3D control (icons3d.c)
+  gfx_metal_panel(0, 296, 150, 92, 14, 2 | 4); icons_stick(4, 298, 142, 88);     // the stick moves the cursor
+  gfx_metal_panel(0, 398, 138, 82, 14, 2); icons_dpad(4, 400, 130, 80);           // the D-pad turns the working plane
+  gfx_metal_panel(GW - 128, 250, 128, 142, 14, 1 | 8); icons_buttons(GW - 124, 254, 120, 134);   // the face buttons
+  gfx_metal_panel(GW - 168, 400, 168, 80, 14, 1); icons_camera(GW - 164, 402, 160, 78);         // the camera
 }
 static void top_bar(const char *mode) {
   gfx_dim(0, 0, GW, 30, 0.55f); gfx_rect(0, 30, GW, 1, 0x2f5a24);

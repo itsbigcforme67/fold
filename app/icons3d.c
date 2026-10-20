@@ -1,10 +1,13 @@
 // FOLD app: the level view's control pictures, in real 3D (the owner's idea): small models on the brushed-metal
 // panels, drawn every frame, that move and play up what a control does when it is used: the thumbstick tilts and the
-// cursor slides on its grid; the D-pad tips, its ribbon arrows (yellow outside, red inside: you see them go round)
-// spin and the planes turn; face buttons sink and glow; the camera turns with the right stick.
+// cursor slides on its grid; the D-pad tips, its ribbon arrows spin and the planes turn; face buttons sink and glow;
+// the camera turns with the right stick. The stick, D-pad and button models are the Duke controller's parts from the
+// VMX film (assets/duke.mesh, made by tools/make_duke.py); until that file loads, simple stand-in shapes are drawn.
 #include "icons3d.h"
 #include "gfx.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define PI 3.14159265f
@@ -96,7 +99,7 @@ static void wedge(const Xf *x, float len, float wid, float h, uint32_t col) {   
   quad(l0, t0, t1, l1, col, col); quad(t0, r0, r1, t1, col, col); quad(r0, l0, l1, r1, col, col);
 }
 // a ribbon arrow going round local z: an arc of band from angle a0 to a1 (degrees) at radius r, centred at height zc,
-// width w, with a head; yellow on its outside, red on its inside (so its far side shows red)
+// width w, with a head; one colour for its outside, one for its inside
 static void ribbon(const Xf *x, float r, float a0, float a1, float zc, float w, uint32_t out, uint32_t in) {
   const float head = 26; float dir = a1 > a0 ? 1 : -1, ae = a1 - dir * head;
   int n = (int)(fabsf(ae - a0) / 8) + 1;
@@ -109,20 +112,74 @@ static void ribbon(const Xf *x, float r, float a0, float a1, float zc, float w, 
   Vec3 b0 = P(x, r * cosf(e), r * sinf(e), zc - hw), b1 = P(x, r * cosf(e), r * sinf(e), zc + hw), tip = P(x, r * cosf(t), r * sinf(t), zc);
   if (dir > 0) quad(b0, tip, tip, b1, out, in); else quad(tip, b0, b1, tip, out, in);
 }
-// set up a small camera for a panel: the scene's middle at the panel's middle
-static void scene(int x, int y, int w, int h, float dist, float elev) {
-  gfx_clip(x, y, w, h); gfx_zclear_rect(x, y, w, h);
+// ---- the Duke parts --------------------------------------------------------------------------------------------------
+typedef struct { char name[12]; float c[3]; int nv, nt; float *v; uint16_t *t; } Part;   // v: pos[3] normal[3]
+enum { DPAD, STICK_L, STICK_R, BTN_A, BTN_B, BTN_X, BTN_Y, NPARTS };
+static Part parts[NPARTS]; static int partsTried, partsOk;
+static void load_parts(void) {
+  partsTried = 1;
+  FILE *f = fopen("assets/duke.mesh", "rb"); if (!f) return;
+  char magic[4]; unsigned n = 0;
+  if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "DUKE", 4) || fread(&n, 4, 1, f) != 1 || n != NPARTS) { fclose(f); return; }
+  for (int k = 0; k < NPARTS; k++) {
+    Part *q = &parts[k]; unsigned nv, nt;
+    if (fread(q->name, 1, 12, f) != 12 || fread(q->c, 4, 3, f) != 3 || fread(&nv, 4, 1, f) != 1 || fread(&nt, 4, 1, f) != 1) { fclose(f); return; }
+    q->nv = (int)nv; q->nt = (int)nt; q->v = malloc(nv * 6 * sizeof(float)); q->t = malloc(nt * 3 * sizeof(uint16_t));
+    if (fread(q->v, sizeof(float), nv * 6, f) != nv * 6 || fread(q->t, sizeof(uint16_t), nt * 3, f) != nt * 3) { fclose(f); return; }
+  }
+  fclose(f); partsOk = 1;
+}
+// a part, at x's frame, scaled from millimetres, its own middle at the frame's origin; lit per corner with a shine
+static void part(const Xf *x, int k, float scale, uint32_t col, float glow) {
+  static Vec3 W[2048]; static float L[2048];
+  const Part *q = &parts[k]; if (q->nv > 2048) return;
+  for (int i = 0; i < q->nv; i++) {
+    const float *v = q->v + i * 6;
+    W[i] = P(x, v[0] * scale, v[1] * scale, v[2] * scale);
+    float nx = x->m[0] * v[3] + x->m[1] * v[4] + x->m[2] * v[5], ny = x->m[3] * v[3] + x->m[4] * v[4] + x->m[5] * v[5], nz = x->m[6] * v[3] + x->m[7] * v[4] + x->m[8] * v[5];
+    Vec3 e = sub3(eye, W[i]); float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z) + 1e-9f;
+    float hx = LX + e.x / el, hy = LY + e.y / el, hz = LZ + e.z / el, hl = sqrtf(hx * hx + hy * hy + hz * hz) + 1e-9f;
+    float d = nx * LX + ny * LY + nz * LZ, sp = (nx * hx + ny * hy + nz * hz) / hl;
+    if (d < 0) d = 0; if (sp < 0) sp = 0;
+    sp = sp * sp; sp = sp * sp; sp = sp * sp; sp = sp * sp;              // tight highlight
+    L[i] = 0.34f + 0.72f * d + glow + (d > 0 ? 0.9f * sp : 0);
+  }
+  for (int j = 0; j < q->nt; j++) {
+    const uint16_t *t = q->t + j * 3;
+    Vec3 a = W[t[0]], b = W[t[1]], c = W[t[2]], u = sub3(b, a), v = sub3(c, a), e = sub3(eye, a);
+    Vec3 n = v3f(u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x);
+    if (n.x * e.x + n.y * e.y + n.z * e.z <= 0) continue;              // facing away
+    Vec3 p3[3] = { a, b, c }; float sh[3] = { L[t[0]], L[t[1]], L[t[2]] };
+    gfx_tri_lit(p3, sh, col);
+  }
+}
+static float part_h(int k) {                    // how tall a part stands (mm), from its lowest point to its highest
+  float lo = 1e9f, hi = -1e9f; for (int i = 0; i < parts[k].nv; i++) { float z = parts[k].v[i * 6 + 2]; if (z < lo) lo = z; if (z > hi) hi = z; }
+  return hi - lo;
+}
+
+// set up a small camera for a panel: the scene's middle at the panel's middle, span units filling its width
+static void scene(int x, int y, int w, int h, float dist, float elev, float span) {   // span: units across the panel
+  gfx_clip(x, y, w, h); gfx_zclear_rect(x, y, w, h); gfx_fog(0, 1e9f, 2e9f);   // no fog on the icons
   gfx_view_offset(x + w / 2 - GW / 2, y + h / 2 - GH / 2);
   eye = v3f(0, -dist * cosf(elev), dist * sinf(elev));
-  gfx_camera(mat_mul(mat_perspective(0.36f, (float)GW / GH, 0.5f, 100.0f), mat_lookat(eye, v3f(0, 0, 0.2f), v3f(0, 0, 1))));
+  gfx_camera(mat_mul(mat_perspective(2 * atanf(span * GH / w / 2 / dist), (float)GW / GH, 0.5f, 100.0f), mat_lookat(eye, v3f(0, 0, 0.2f), v3f(0, 0, 1))));
 }
 static void done(void) { gfx_clip(0, 0, 0, 0); gfx_view_offset(0, 0); }
 static uint32_t brighter(uint32_t c, float k) {
   int r = (int)(((c >> 16) & 255) + (255 - ((c >> 16) & 255)) * k), g = (int)(((c >> 8) & 255) + (255 - ((c >> 8) & 255)) * k), b = (int)((c & 255) + (255 - (c & 255)) * k);
   return (uint32_t)(r << 16 | g << 8 | b);
 }
-static const uint32_t YEL = 0xf2e01c, RED = 0xe02020, INK = 0x161616, INK2 = 0x2c2c2c;
-static void thumbstick(Xf base, float tiltX, float tiltY, uint32_t cap) {
+static const uint32_t YEL = 0xf2e01c, INK = 0x161616, INK2 = 0x2c2c2c;
+static void thumbstick(Xf base, float tiltX, float tiltY, uint32_t cap, int which) {
+  if (!partsTried) load_parts();
+  if (partsOk) {                                                        // the Duke stick, tipped about its foot
+    const float sc = 0.06f, h = part_h(which) * sc;
+    Xf s = rot(rot(base, 1, tiltX * 24), 0, tiltY * 24);
+    s.t = P(&s, 0, 0, h / 2);
+    part(&s, which, sc, 0x2a2b2e, 0);
+    return;
+  }
   cyl(&base, 0.82f, -0.06f, 0.06f, INK2, 0x353535);                     // the round base
   Xf s = rot(rot(base, 1, tiltX * 22), 0, tiltY * 22);                  // tipped by the stick
   cyl(&s, 0.2f, 0.06f, 0.55f, INK, INK);
@@ -132,7 +189,7 @@ static void thumbstick(Xf base, float tiltX, float tiltY, uint32_t cap) {
 
 // ---- the four panels ----------------------------------------------------------------------------------------------
 void icons_stick(int x, int y, int w, int h) {   // the left stick moves the cursor over the grid
-  scene(x, y, w, h, 15, 0.62f);
+  scene(x, y, w, h, 15, 0.62f, 4.8f);
   float bob = sinf(tt * 0.05f) * 0.03f;
   Xf b = xf(v3f(-1.3f, 0, bob));
   for (int k = 0; k < 4; k++) {                                         // yellow arrowheads round the base
@@ -141,7 +198,7 @@ void icons_stick(int x, int y, int w, int h) {   // the left stick moves the cur
     Xf a = rot(xf(v3f(-1.3f + dx * (1.0f + push * 0.25f), dy * (1.0f + push * 0.25f), 0.02f)), 2, k == 0 ? 0 : k == 1 ? 180 : k == 2 ? 90 : -90);
     wedge(&a, 0.34f + push * 0.25f, 0.24f + push * 0.1f, 0.12f, brighter(YEL, push * 0.5f));
   }
-  thumbstick(b, stX, -stY, INK);
+  thumbstick(b, stX, -stY, INK, STICK_L);
   Xf g = rot(xf(v3f(1.45f, 0.1f, 0.05f)), 0, 0);                        // the grid, and the cursor on it
   for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) box(&g, i * 0.52f, j * 0.52f, 0, 0.44f, 0.44f, 0.06f, 0x52c41a);
   float cx = curX * 0.52f, cy = curY * 0.52f; const uint32_t CY = 0x22e0ea;
@@ -153,15 +210,19 @@ void icons_stick(int x, int y, int w, int h) {   // the left stick moves the cur
   done();
 }
 void icons_dpad(int x, int y, int w, int h) {    // the D-pad turns the working plane
-  scene(x, y, w, h, 15, 0.55f);
+  scene(x, y, w, h, 15, 0.72f, 4.8f);
   Xf b = xf(v3f(-1.15f, 0, 0));
   Xf d = rot(rot(b, 1, dpX * 16), 0, -dpY * 16);                        // tipped by a press
-  cyl(&d, 0.8f, -0.06f, 0.06f, INK2, 0x2e2e2e);
-  box(&d, 0, 0, 0.13f, 1.12f, 0.36f, 0.14f, INK); box(&d, 0, 0, 0.13f, 0.36f, 1.12f, 0.14f, INK);
-  cyl(&d, 0.14f, 0.2f, 0.22f, 0x2a2a2a, 0x3a3a3a);
+  if (!partsTried) load_parts();
+  if (partsOk) { Xf dd = d; dd.t = P(&d, 0, 0, part_h(DPAD) * 0.062f / 2); part(&dd, DPAD, 0.062f, 0x2a2b2e, 0); }
+  else {
+    cyl(&d, 0.8f, -0.06f, 0.06f, INK2, 0x2e2e2e);
+    box(&d, 0, 0, 0.13f, 1.12f, 0.36f, 0.14f, INK); box(&d, 0, 0, 0.13f, 0.36f, 1.12f, 0.14f, INK);
+    cyl(&d, 0.14f, 0.2f, 0.22f, 0x2a2a2a, 0x3a3a3a);
+  }
   Xf r = rot(b, 0, 14);                                                 // the ribbon arrows round it
-  ribbon(&r, 1.05f, spin * 57 + 20, spin * 57 + 140, 0.35f, 0.3f, YEL, RED);
-  ribbon(&r, 1.05f, spin * 57 + 200, spin * 57 + 320, 0.35f, 0.3f, YEL, RED);
+  ribbon(&r, 1.05f, spin * 57 + 20, spin * 57 + 140, 0.35f, 0.4f, YEL, YEL);
+  ribbon(&r, 1.05f, spin * 57 + 200, spin * 57 + 320, 0.35f, 0.4f, YEL, YEL);
   Xf p = rot(rot(xf(v3f(1.3f, 0, 0.35f)), 0, planeRx), 2, planeRz);    // the planes, turning with each press
   const float s = 0.55f;
   quad(P(&p, -s, 0, -s), P(&p, s, 0, -s), P(&p, s, 0, s), P(&p, -s, 0, s), 0xe03030, 0xa02020);
@@ -170,9 +231,24 @@ void icons_dpad(int x, int y, int w, int h) {    // the D-pad turns the working 
   done();
 }
 void icons_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style: Y X B A
-  scene(x, y, w, h, 13, 0.95f);
+  scene(x, y, w, h, 13, 0.95f, 2.9f);
   struct { float x, y; uint32_t c; const char *l; } fb[4] = { { -0.2f, 0.8f, 0xe8d020, "Y" }, { -0.8f, 0.1f, 0x2050e0, "X" },
                                                             { 0.75f, 0.25f, 0xe02828, "B" }, { 0.15f, -0.6f, 0x52d020, "A" } };
+  if (!partsTried) load_parts();
+  if (partsOk) {                                 // the Duke's own buttons, where they sit on the pad
+    const int id[4] = { BTN_Y, BTN_X, BTN_B, BTN_A }; const float sc = 0.06f; float m[3] = { 0, 0, 0 };
+    for (int k = 0; k < 4; k++) for (int i = 0; i < 3; i++) m[i] += parts[id[k]].c[i] / 4;
+    for (int k = 0; k < 4; k++) {
+      const Part *q = &parts[id[k]];
+      fb[k].x = (q->c[0] - m[0]) * sc; fb[k].y = (q->c[1] - m[1]) * sc;
+      Xf b = xf(v3f(fb[k].x, fb[k].y, (q->c[2] - m[2]) * sc - press[k] * 0.14f));
+      part(&b, id[k], sc, brighter(fb[k].c, press[k] * 0.3f), press[k] * 0.35f);
+    }
+    for (int k = 0; k < 4; k++) {
+      float sx, sy; if (gfx_project(v3f(fb[k].x, fb[k].y, part_h(id[k]) * sc / 2 + 0.02f - press[k] * 0.14f), &sx, &sy)) gfx_text5((int)sx - 2, (int)sy - 3, 1, 0x101010, fb[k].l);
+    }
+    done(); return;
+  }
   for (int k = 0; k < 4; k++) {
     float pz = -press[k] * 0.12f;
     Xf b = xf(v3f(fb[k].x, fb[k].y, pz));
@@ -186,7 +262,7 @@ void icons_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style
   done();
 }
 void icons_camera(int x, int y, int w, int h) {  // the camera turns with the right stick (and L / R)
-  scene(x, y, w, h, 15, 0.5f);
+  scene(x, y, w, h, 15, 0.5f, 5.0f);
   Xf c = rot(rot(xf(v3f(-1.45f, 0, 0.35f)), 2, 15 + rsX * 30), 1, rsY * 15);   // a film camera, turned by the stick
   box(&c, 0, 0, 0, 0.9f, 0.45f, 0.5f, 0x242424);
   Xf lens = rot(c, 1, -90); lens.t = P(&c, -0.45f, 0, 0);
@@ -196,8 +272,8 @@ void icons_camera(int x, int y, int w, int h) {  // the camera turns with the ri
   box(&a, -0.25f, 0, 0.06f, 0.3f, 0.16f, 0.12f, YEL);
   Xf b = xf(v3f(1.3f, 0, 0));
   Xf r = rot(b, 0, 12);
-  ribbon(&r, 1.0f, -spin * 57 + 30, -spin * 57 + 150, 0.4f, 0.28f, YEL, RED);
-  ribbon(&r, 1.0f, -spin * 57 + 210, -spin * 57 + 330, 0.4f, 0.28f, YEL, RED);
-  thumbstick(b, rsX, -rsY, INK);
+  ribbon(&r, 1.0f, -spin * 57 + 30, -spin * 57 + 150, 0.4f, 0.28f, YEL, YEL);
+  ribbon(&r, 1.0f, -spin * 57 + 210, -spin * 57 + 330, 0.4f, 0.28f, YEL, YEL);
+  thumbstick(b, rsX, -rsY, INK, STICK_R);
   done();
 }

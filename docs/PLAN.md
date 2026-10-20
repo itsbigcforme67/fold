@@ -22,18 +22,12 @@ repo is public. VMX hardware tests run on an M5Stack CoreS3 with the Faces gamep
 See `docs/FORMAT.md`. The levels in `levels/` were exported from the JavaScript version
 (`tools/export_levels.mjs`).
 
-## In progress (2026-10-20): live 3D control icons in the level view
+## Done (2026-10-20): live 3D control icons in the level view
 
-Owner: the level view's control pictures (bottom-corner brushed-metal panels) should be REAL 3D, drawn live, moving
-and exaggerating their point when a control is used (stick tilts / cursor slides; D-pad tips, ribbon arrows spin, the
-planes turn; face buttons sink and glow; camera turns with the right stick). Curved arrows are 3D ribbons wrapping
-round the D-pad / right stick, YELLOW ON BOTH SIDES (the red in the owner's sketch was only to show which side is the
-back). Use the Duke controller models from the VMX film (XMU GADGET: tools/duke/, anim/duke/align_me.blend): the D-pad,
-both sticks, the face buttons. Plan: export those objects with Blender headless (blender -b) to a small mesh asset
-(triangles + flat colours) the C renderer loads; app/icons3d.c already has the panel scenes, ribbon arrows, the
-grid/cursor, crossing planes and film camera built in code, and gfx has gfx_clip / gfx_zclear_rect / view offset.
-Still to do: the export tool, a mesh loader, swap the stand-in models for the Duke ones, wire icons_update /
-icons_* into app.c's level view (replacing level_controls' flat drawings), screenshot, commit.
-The Duke parts are STL files in `XMU GADGET/anim/duke/`: part_dpad, part_stick_l, part_stick_r, part_a / part_b /
-part_x / part_y (plus *_core). Convert them with a small Python tool (numpy, decimated for the software renderer,
-centred, colours by part) to an asset the app loads; no Blender needed.
+The level view's corner panels (brushed metal) hold real 3D controls drawn live by app/icons3d.c, moving and playing
+up their point when used: the stick tilts and the cursor slides on its grid; the D-pad tips, its ribbon arrows spin
+and the planes turn; face buttons sink and glow; the camera turns with the right stick. Ribbon arrows are yellow on
+both sides. The stick, D-pad and face-button models are the Duke parts from the VMX film (`XMU GADGET/anim/duke/
+part_*.stl`), turned into assets/duke.mesh by tools/make_duke.py (Blender headless: weld, decimate to ~500-1800
+triangles, icon frame). They are drawn with smooth per-corner light and a shine (gfx_tri_lit). Without the file the
+icons fall back to simple built-in shapes.

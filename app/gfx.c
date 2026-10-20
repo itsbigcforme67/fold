@@ -197,7 +197,13 @@ static uint32_t shade_c(uint32_t c, float k) {
   int r = (int)(((c >> 16) & 255) * k), g = (int)(((c >> 8) & 255) * k), b = (int)((c & 255) * k);
   return (uint32_t)((r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b));
 }
-static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 2 shadow mask
+static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 2 shadow mask, 3 lit (u = shade)
+static uint32_t shade_lit(uint32_t c, float k) { // up to 1 darkens; above it, a shine towards white
+  if (k <= 1) return shade_c(c, k < 0 ? 0 : k);
+  float w = k - 1 > 1 ? 1 : k - 1;
+  int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+  return (uint32_t)((int)(r + (255 - r) * w) << 16 | (int)(g + (255 - g) * w) << 8 | (int)(b + (255 - b) * w));
+}
 static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t colour, float shade) {
   float X[3], Y[3], IW[3], UW[3], VW[3], Z[3];
   const CV *v[3] = { a, b, c };
@@ -224,7 +230,8 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
     if (z >= zbuf[k]) continue;
     if (triMode == 1) { gfx_px[k] = mix(gfx_px[k], fogged(flat, z), triAlpha); continue; }
     uint32_t col = flat;
-    if (t) {
+    if (triMode == 3) col = shade_lit(colour, (w0 * UW[0] + w1 * UW[1] + w2 * UW[2]) * z);
+    else if (t) {
       float u = (w0 * UW[0] + w1 * UW[1] + w2 * UW[2]) * z, vv = (w0 * VW[0] + w1 * VW[1] + w2 * VW[2]) * z;
       int tx = (int)(u * t->w), ty = (int)(vv * t->h);
       if (tx < 0) tx = 0; if (ty < 0) ty = 0; if (tx >= t->w) tx = t->w - 1; if (ty >= t->h) ty = t->h - 1;
@@ -251,6 +258,25 @@ void gfx_quad(const Vec3 p[4], const Tex *t, uint32_t colour, float shade) {
     }
   }
   for (int i = 1; i + 1 < n; i++) tri(&out[0], &out[i], &out[i + 1], t, colour, shade);
+}
+void gfx_tri_lit(const Vec3 p[3], const float sh[3], uint32_t colour) {
+  CV in[3], out[6]; int n = 0;
+  for (int i = 0; i < 3; i++) { in[i].c = xform(p[i]); in[i].u = sh[i]; in[i].v = 0; }
+  const float NEAR = 0.05f;
+  for (int i = 0; i < 3; i++) {
+    const CV *a = &in[i], *b = &in[(i + 1) % 3];
+    int ia = a->c.w >= NEAR, ib = b->c.w >= NEAR;
+    if (ia) out[n++] = *a;
+    if (ia != ib) {
+      float k = (NEAR - a->c.w) / (b->c.w - a->c.w); CV m;
+      m.c.x = a->c.x + (b->c.x - a->c.x) * k; m.c.y = a->c.y + (b->c.y - a->c.y) * k;
+      m.c.z = a->c.z + (b->c.z - a->c.z) * k; m.c.w = NEAR; m.u = a->u + (b->u - a->u) * k; m.v = 0;
+      out[n++] = m;
+    }
+  }
+  triMode = 3;
+  for (int i = 1; i + 1 < n; i++) tri(&out[0], &out[i], &out[i + 1], NULL, colour, 1);
+  triMode = 0;
 }
 void gfx_quad_alpha(const Vec3 p[4], uint32_t colour, float alpha) { triMode = 1; triAlpha = alpha; gfx_quad(p, NULL, colour, 1); triMode = 0; }
 void gfx_shadow_begin(void) { memset(smask, 0, sizeof smask); }
