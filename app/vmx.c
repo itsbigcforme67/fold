@@ -15,6 +15,7 @@ static const char *FLOOR[7] = { ".......", ".......", ".......", "...#...", "...
 static const char *ARROW[7] = { ".......", "...#...", "..###..", ".#.#.#.", "...#...", ".......", "......." };   // up
 static const char *ICE[7] = { ".......", ".#.....", "..#....", ".......", "....#..", ".....#.", "......." };
 static const char *ONEWAY[7] = { "...#...", "..###..", ".#####.", "#######", "..###..", "..###..", "......." };   // up
+static const char *PIT[7] = { "#######", "#.#.#.#", "##.#.##", "#.#.#.#", "##.#.##", "#.#.#.#", "#######" };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -48,6 +49,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
     int e = s && out >= 0 ? fold_step(s, c, out, &nd) : -1;
     if (!target[c] && !btn[c] && !hasBox && c != player) {
       if (kind[c] == FK_ONEWAY) arrow_spr(b, x, y, (aux[c] - rot) & 3, ONEWAY);
+      else if (kind[c] == FK_PIT) sprite(b, x, y, PIT);
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }

@@ -201,11 +201,15 @@ static int enterable(const FoldGame *g, int c, int d, int box) {
   (void)box;
   if (c < 0 || g->wall[c]) return 0;
   if (g->kind[c] == FK_ONEWAY && g->aux[c] != d) return 0;   // only in the arrow's way
+  if (g->kind[c] == FK_PIT) return box;                       // you can't walk in; a box drops in and fills it
   return 1;
 }
-// a box arrives at c heading d: on ice it keeps sliding until the next tile won't take it. Returns where it stops.
+// a box arrives at c heading d: into a pit it drops (the pit becomes floor, the box is gone; returns -1); on ice it
+// keeps sliding until the next tile won't take it. Returns where it stops.
 static int box_slide(FoldGame *g, int c, int d) {
-  for (int guard = 0; guard < FOLD_MAXC && g->kind[c] == FK_ICE; guard++) {
+  for (int guard = 0; guard < FOLD_MAXC; guard++) {
+    if (g->kind[c] == FK_PIT) { set(g, A_BOX, c, 0); set(g, A_KIND, c, FK_FLOOR); return -1; }
+    if (g->kind[c] != FK_ICE) break;
     int nd, n = fold_step(&g->s, c, d, &nd);
     if (n < 0 || !enterable(g, n, nd, 1) || g->box[n] || n == g->p) break;
     set(g, A_BOX, c, 0); set(g, A_BOX, n, 1); c = n; d = nd;
@@ -295,7 +299,8 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch == '_') lv->kind[c] = FK_PIT;
         if (ch == '~') lv->kind[c] = FK_ICE;
         if (strchr("^>v<", ch)) { lv->kind[c] = FK_ONEWAY; lv->aux[c] = (uint8_t)(strchr("^>v<", ch) - "^>v<"); }
         lv->wall[c] = ch == '#';
