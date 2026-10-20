@@ -544,7 +544,7 @@ static void wire_frame(const Pad *p) {
   }
   if (pressed(p, PAD_A) && wrow == addL && L.nlogic < FOLD_MAXLOGIC) {      // a new AND, sending a fresh signal
     FoldLogic *q = &L.logic[L.nlogic]; memset(q, 0, sizeof *q);
-    q->op = FL_AND; q->count = 2; q->n = 4; q->out = (uint8_t)next_signal(); L.nlogic++; wrow = firstL + L.nlogic; wfield = 3;
+    q->op = FL_AND; q->count = 2; q->n = 4; q->out = (uint8_t)next_signal(); L.nlogic++; wrow = firstL + L.nlogic - 1; wfield = 3;
   }
   if (pressed(p, PAD_X)) {                                                  // delete a timer / piece
     if (wrow >= 1 && wrow <= T) { memmove(&L.timer[wrow - 1], &L.timer[wrow], sizeof(FoldTimer) * (L.ntimer - wrow)); L.ntimer--; }
