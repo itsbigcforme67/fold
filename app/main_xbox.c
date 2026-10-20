@@ -57,7 +57,7 @@ int main(void) {
   SDL_Init(SDL_INIT_GAMECONTROLLER);
   app_init("D:\\levels");
   SDL_GameController *pad = NULL;
-  int demo = padscript_open("D:\\demo.txt");          // a pad script on the disc plays first (tests, attract)
+  int demo = padscript_open("D:\\demo.txt"), trace = 1;   // trace: the pad and state each tick to COM1 while a demo plays          // a pad script on the disc plays first (tests, attract)
   serial(demo ? "FOLD: playing D:\\demo.txt\n" : "FOLD: started\n");
   Uint32 last = SDL_GetTicks(), fpsT = last; int frames = 0, fps = 0;
   while (!app_quit()) {
@@ -74,6 +74,13 @@ int main(void) {
     last += (Uint32)ticks * 33; if (now - last > 200) last = now;
     for (int k = 0; k < ticks; k++) {
       if (demo && !padscript_next(&p)) { demo = 0; serial("FOLD: demo ended\n"); }
+      if (demo && trace) {                    // the pad each tick it changes (to compare with the PC)
+        static Pad lp; static int tick;
+        if (memcmp(&lp, &p, sizeof p)) { char s[96]; snprintf(s, sizeof s, "T %d %x %d %d %d %d\n", tick, p.held, (int)(p.lx * 100), (int)(p.ly * 100), (int)(p.rx * 100), (int)(p.ry * 100)); serial(s); lp = p; }
+        static char lastSt[96]; char st[96]; app_state(st, sizeof st);
+        if (strcmp(st, lastSt)) { char s2[128]; snprintf(s2, sizeof s2, "S %d %s\n", tick, st); serial(s2); strcpy(lastSt, st); }
+        tick++;
+      }
       app_frame(&p);
     }
     app_draw();

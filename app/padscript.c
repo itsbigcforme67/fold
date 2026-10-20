@@ -23,6 +23,22 @@ int padscript_open(const char *path) {
   at = text; memset(&cur, 0, sizeof cur); left = 0; haveAfter = 0;
   return 1;
 }
+// numbers read by hand: nxdk's C library has no float parsing (sscanf %f / atof)
+static int num(const char **r, float *v) {
+  const char *c = *r; while (*c == ' ' || *c == '\t') c++;
+  int neg = *c == '-'; if (*c == '-' || *c == '+') c++;
+  if (!((*c >= '0' && *c <= '9') || *c == '.')) return 0;
+  float x = 0, f = 0.1f;
+  while (*c >= '0' && *c <= '9') x = x * 10 + (float)(*c++ - '0');
+  if (*c == '.') for (c++; *c >= '0' && *c <= '9'; c++, f *= 0.1f) x += (float)(*c - '0') * f;
+  *v = neg ? -x : x; *r = c; return 1;
+}
+static int word(const char **r, char *out, int max) {
+  const char *c = *r; while (*c == ' ' || *c == '\t') c++;
+  int n = 0; while (*c && *c != ' ' && *c != '\t' && *c != '\r' && n < max - 1) out[n++] = *c++;
+  out[n] = 0; *r = c; return n > 0;
+}
+static int nums(const char *r, int count, float *v) { for (int i = 0; i < count; i++) if (!num(&r, &v[i])) return 0; return 1; }
 static Pad held;                          // what "set" leaves held
 int padscript_next(Pad *p) {
   while (left == 0) {
@@ -30,17 +46,18 @@ int padscript_next(Pad *p) {
     if (!at || !*at) return 0;
     char line[256]; size_t k = strcspn(at, "\n"); if (k > 255) k = 255;
     memcpy(line, at, k); line[k] = 0; at += k; if (*at) at++;
-    char w[32] = "", a[64] = ""; float x = 0, y = 0, z = 0, q = 0; int n = 0;
+    char w[32] = "", a[64] = ""; int n = 0;
     if (line[0] == '#' || sscanf(line, "%31s", w) < 1) continue;
-    const char *r = strstr(line, w) + strlen(w);   // the words after the command (no %*s: nxdk's sscanf mishandles it)
+    const char *r = strstr(line, w) + strlen(w);   // the words after the command (no sscanf: see num())
     cur = held; Pad rel = held;
-    if (!strcmp(w, "wait") && sscanf(r, "%d", &n) == 1) { left = n; continue; }
-    if (!strcmp(w, "hold") && sscanf(r, "%63s %d", a, &n) == 2) cur.held = bit(a);
-    else if (!strcmp(w, "stick") && sscanf(r, "%f %f %d", &x, &y, &n) == 3) { cur.lx = x; cur.ly = y; }
-    else if (!strcmp(w, "rstick") && sscanf(r, "%f %f %d", &x, &y, &n) == 3) { cur.rx = x; cur.ry = y; }
-    else if (!strcmp(w, "zoom") && sscanf(r, "%f %d", &y, &n) == 2) { cur.held = PAD_BACK; cur.ry = y; }
-    else if (!strcmp(w, "set") && sscanf(r, "%63s %f %f %f %f", a, &x, &y, &z, &q) == 5) {
-      held.held = bit(a); held.lx = x; held.ly = y; held.rx = z; held.ry = q; continue;
+    float v[5]; const char *r2 = r;
+    if (!strcmp(w, "wait") && nums(r, 1, v)) { left = (int)v[0]; continue; }
+    if (!strcmp(w, "hold") && word(&r2, a, sizeof a) && nums(r2, 1, v)) { cur.held = bit(a); n = (int)v[0]; }
+    else if (!strcmp(w, "stick") && nums(r, 3, v)) { cur.lx = v[0]; cur.ly = v[1]; n = (int)v[2]; }
+    else if (!strcmp(w, "rstick") && nums(r, 3, v)) { cur.rx = v[0]; cur.ry = v[1]; n = (int)v[2]; }
+    else if (!strcmp(w, "zoom") && nums(r, 2, v)) { cur.held = PAD_BACK; cur.ry = v[0]; n = (int)v[1]; }
+    else if (!strcmp(w, "set") && word(&r2, a, sizeof a) && nums(r2, 4, v)) {
+      held.held = bit(a); held.lx = v[0]; held.ly = v[1]; held.rx = v[2]; held.ry = v[3]; continue;
     } else if (bit(w)) { cur.held = bit(w); n = 1; }
     else continue;                        // shot, rec, caption, load, save...: not input
     left = n; after = rel; haveAfter = 1;   // then let go for a tick, as the headless runner does
