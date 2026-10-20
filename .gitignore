@@ -4,3 +4,5 @@ build/
 *.iso
 *.obj
 *.c.d
+xbox/main.exe
+xbox/*.lib
