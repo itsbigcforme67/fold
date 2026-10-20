@@ -20,8 +20,11 @@ sol 0012303...                   optional: a solution, room-relative directions 
 The front of square i faces n = v x u (outwards: seen from the front, u points right and v down). The back is the
 mirror image: corner o + u, axes -u, v.
 
-Cells: `#` wall, `.` floor, `x` target, `b` box, `B` box on a target, `p` player, `P` player on a target, `o` button,
-`O` box on a button. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.
+Tiles: `#` wall, `.` floor, `x` target, `b` box, `B` box on a target, `p` player, `P` player on a target, `o` button,
+`O` box on a button, `~` ice (you and pushed boxes slide across it until something stops you or the ice ends).
+
+A box or the player starting on any other kind of tile: `box <square> <f|b> <x> <y>` / `player <square> <f|b> <x> <y>`
+after the room block. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.
 
 Link entries, applied in order: `f<i>` flip square i (each side's contents move to the same spot on the other
 side); `r<i>` turn square i a quarter clockwise as seen from the front; `s<i>:<d>` shift square i one unit, d = u d l

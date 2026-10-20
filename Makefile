@@ -8,8 +8,13 @@ build/levels: tests/levels.c core/fold.c core/fold.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -o $@ tests/levels.c core/fold.c
 
-test: build/levels
+build/tiles: tests/tiles.c core/fold.c core/fold.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o $@ tests/tiles.c core/fold.c
+
+test: build/levels build/tiles
 	build/levels levels/*.fold
+	build/tiles
 
 parity: build/levels
 	$(NODE) tools/trace_js.mjs > build/trace_js.txt

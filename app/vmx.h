@@ -13,7 +13,7 @@
 // VMX_FLOOR_ONLY leaves walls, boxes and the player out (the 3D view stands those up itself).
 enum { VMX_FLOOR_ONLY = 1 };
 void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint8_t *box, const uint8_t *btn,
-              int f, int rot, int player, const FoldSurface *s, int flags);
+              const uint8_t *kind, const uint8_t *aux, int f, int rot, int player, const FoldSurface *s, int flags);
 // the whole game screen: room, HUD (level, boxes left, moves), and a pop-up ("A ROOM" / line2) if line2
 void vmx_game(uint8_t *b, const FoldGame *g, int level, const char *line2);
 void vmx_text(uint8_t *b, int x, int y, const char *s);

@@ -51,7 +51,8 @@ static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
 static int rf, rrot, rx = 3, ry = 3, item = 1;
-static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER" };
+static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE" };
+#define NITEMS 7
 // settings / menu
 static int prow, mrow, fileIx, vmxWin = 1, propSq, propsBack = M_SHAPE;
 // playtest
@@ -68,11 +69,11 @@ static int find_sq(const int *o, const int *a, const int *b) { for (int i = 0; i
 static void make_room(int f) {           // a fresh room: wall round the outside, floor inside
   for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) {
     int c = f * NN + y * N + x;
-    L.wall[c] = x == 0 || y == 0 || x == N - 1 || y == N - 1; L.target[c] = L.box[c] = L.btn[c] = 0;
+    L.wall[c] = x == 0 || y == 0 || x == N - 1 || y == N - 1; L.target[c] = L.box[c] = L.btn[c] = L.kind[c] = L.aux[c] = 0;
   }
   sides[f >> 1] |= 1 << (f & 1);
 }
-static void clear_face(int f) { for (int c = f * NN; c < (f + 1) * NN; c++) { L.wall[c] = 1; L.target[c] = L.box[c] = L.btn[c] = 0; } if (L.player / NN == f) L.player = -1; }
+static void clear_face(int f) { for (int c = f * NN; c < (f + 1) * NN; c++) { L.wall[c] = 1; L.target[c] = L.box[c] = L.btn[c] = L.kind[c] = L.aux[c] = 0; } if (L.player / NN == f) L.player = -1; }
 static void resurface(void) { fold_surface(&S, L.sq, L.nsq); }
 static void new_level(void) {
   memset(&L, 0, sizeof L); memset(L.wall, 1, sizeof L.wall); L.player = -1;
@@ -97,15 +98,15 @@ static int add_sq(int nc[3]) {           // a tile at the cursor, its front faci
 }
 static void remove_sq(int i) {
   int n = L.nsq;
-  uint8_t *arr[4] = { L.wall, L.target, L.box, L.btn };
-  for (int k = 0; k < 4; k++) memmove(arr[k] + 2 * i * NN, arr[k] + 2 * (i + 1) * NN, (size_t)(2 * (n - i - 1) * NN));
+  uint8_t *arr[6] = { L.wall, L.target, L.box, L.btn, L.kind, L.aux };
+  for (int k = 0; k < 6; k++) memmove(arr[k] + 2 * i * NN, arr[k] + 2 * (i + 1) * NN, (size_t)(2 * (n - i - 1) * NN));
   memmove(&L.sq[i], &L.sq[i + 1], sizeof(FoldSquare) * (n - i - 1));
   memmove(&sides[i], &sides[i + 1], (size_t)(n - i - 1)); memmove(&func[i], &func[i + 1], sizeof(FoldAct) * (n - i - 1));
   memmove(&trig[i], &trig[i + 1], sizeof(int) * (n - i - 1));
   for (int k = 0; k < n - 1; k++) if (func[k].kind && func[k].sq > i) func[k].sq--;
   if (L.player >= 0) { int f = L.player / NN; if (f >> 1 == i) L.player = -1; else if (f >> 1 > i) L.player -= 2 * NN; }
   L.nsq--;
-  for (int k = 0; k < 4; k++) memset(arr[k] + 2 * L.nsq * NN, k == 0, 2 * NN);
+  for (int k = 0; k < 6; k++) memset(arr[k] + 2 * L.nsq * NN, k == 0, 2 * NN);
   resurface();
 }
 static int nbuttons(void) { int n = 0; for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.btn[c] && !L.wall[c]) n++; return n; }
@@ -135,8 +136,13 @@ int app_save(const char *p) {
     if (!(sides[fc >> 1] >> (fc & 1) & 1)) continue;
     fprintf(f, "room %d %c\n", fc >> 1, fc & 1 ? 'b' : 'f');
     for (int y = 0; y < N; y++) { for (int x = 0; x < N; x++) { int c = fc * NN + y * N + x;
-      char ch = L.wall[c] ? '#' : L.box[c] ? (L.target[c] ? 'B' : B.btn[c] ? 'O' : 'b') : c == L.player ? (L.target[c] ? 'P' : 'p') : L.target[c] ? 'x' : B.btn[c] ? 'o' : '.';
+      char ch = L.kind[c] == FK_ICE ? '~' :      // special floors: a box / the player on them goes on its own line
+        L.wall[c] ? '#' : L.box[c] ? (L.target[c] ? 'B' : B.btn[c] ? 'O' : 'b') : c == L.player ? (L.target[c] ? 'P' : 'p') : L.target[c] ? 'x' : B.btn[c] ? 'o' : '.';
       fputc(ch, f); } fputc('\n', f); }
+    for (int c = fc * NN; c < (fc + 1) * NN; c++) if (L.kind[c] && !L.wall[c]) {
+      if (L.box[c]) fprintf(f, "box %d %c %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N);
+      if (c == L.player) fprintf(f, "player %d %c %d %d\n", fc >> 1, fc & 1 ? 'b' : 'f', c % N, (c / N) % N);
+    }
   }
   for (int b = 0; b < B.nbtn; b++) if (B.nact[b]) {
     fprintf(f, "link %d", b + 1);
@@ -296,16 +302,17 @@ static void paint(int c, int what) {
   int x = c % N, y = (c / N) % N, edge = x == 0 || y == 0 || x == N - 1 || y == N - 1, corner = (x == 0 || x == N - 1) && (y == 0 || y == N - 1);
   if (corner && what != 0) { say("CORNERS STAY WALL"); return; }
   switch (what) {
-    case 0: if (c == L.player) { say("MOVE THE PLAYER FIRST"); return; } L.wall[c] = 1; L.box[c] = L.target[c] = L.btn[c] = 0; break;
-    case 1: L.wall[c] = 0; L.box[c] = L.target[c] = L.btn[c] = 0; break;
+    case 0: if (c == L.player) { say("MOVE THE PLAYER FIRST"); return; } L.wall[c] = 1; L.box[c] = L.target[c] = L.btn[c] = L.kind[c] = L.aux[c] = 0; break;
+    case 1: L.wall[c] = 0; L.box[c] = L.target[c] = L.btn[c] = L.kind[c] = L.aux[c] = 0; break;
     case 2: if (c == L.player) return; L.wall[c] = 0; L.box[c] ^= 1; break;
     case 3: L.wall[c] = 0; L.target[c] ^= 1; break;
     case 4: L.wall[c] = 0; L.btn[c] ^= 1; break;
     case 5: if (L.box[c]) return; L.wall[c] = 0; L.player = c; break;
+    case 6: L.wall[c] = 0; L.btn[c] = 0; L.kind[c] = L.kind[c] == FK_ICE ? FK_FLOOR : FK_ICE; break;
   }
   if (edge && !corner) {                      // a doorway opens (or closes) on both sides
     int d = y == 0 ? 0 : x == N - 1 ? 1 : y == N - 1 ? 2 : 3, d1, m = fold_step(&S, c, d, &d1);
-    if (m >= 0 && (sides[(m / NN) >> 1] >> ((m / NN) & 1) & 1)) { L.wall[m] = L.wall[c]; if (L.wall[m]) { L.box[m] = L.target[m] = L.btn[m] = 0; } }
+    if (m >= 0 && (sides[(m / NN) >> 1] >> ((m / NN) & 1) & 1)) { L.wall[m] = L.wall[c]; if (L.wall[m]) { L.box[m] = L.target[m] = L.btn[m] = L.kind[m] = L.aux[m] = 0; } }
   }
 }
 static void room_frame(const Pad *p) {
@@ -319,8 +326,8 @@ static void room_frame(const Pad *p) {
     int sd = PADDIR[d], ex = sd == 1 ? N - 1 : sd == 3 ? 0 : rx, ey = sd == 2 ? N - 1 : sd == 0 ? 0 : ry;
     if (!go_room(screen_to_cell(ex, ey), sd)) say("NO CELL THAT WAY");
   }
-  if (pressed(p, PAD_L)) item = (item + 5) % 6;
-  if (pressed(p, PAD_R)) item = (item + 1) % 6;
+  if (pressed(p, PAD_L)) item = (item + NITEMS - 1) % NITEMS;
+  if (pressed(p, PAD_R)) item = (item + 1) % NITEMS;
   if (pressed(p, PAD_A)) paint(screen_to_cell(rx, ry), item);
   if (pressed(p, PAD_B)) paint(screen_to_cell(rx, ry), 1);
   if (pressed(p, PAD_X)) mode = M_SHAPE;
@@ -439,7 +446,7 @@ static uint32_t texbuf[2][56 * 56];
 static uint8_t bits[64 * 64];
 static void room_tex(int f, int rot, uint32_t *out, uint32_t lit, uint32_t dark) {   // the VMX room as a 56x56 texture
   memset(bits, 0, sizeof bits);
-  vmx_room(bits, L.wall, L.target, L.box, L.btn, f, rot, L.player, &S, 0);
+  vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, f, rot, L.player, &S, 0);
   for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) out[y * 56 + x] = bits[(y + 8) * 64 + x + 4] ? lit : dark;
 }
 // ---- the shape in 3D: tiles with their rooms, walls as brick blocks, boxes as crates, the player standing up ------
@@ -585,8 +592,11 @@ static void draw_shape(void) {
     Vec3 nf = FF.n;
     if (room) {
       memset(bits, 0, sizeof bits);
-      vmx_room(bits, L.wall, L.target, L.box, L.btn, f, 0, -1, &S, VMX_FLOOR_ONLY);   // floor, arrows, targets, buttons
-      for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) texbuf[0][y * 56 + x] = bits[(y + 8) * 64 + x + 4] ? 0x4fa82a : 0x0d1a0a;
+      vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, f, 0, -1, &S, VMX_FLOOR_ONLY);   // floor, arrows, targets, buttons
+      for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) {
+        int ice = L.kind[f * NN + (y / 7) * N + x / 7] == FK_ICE, lit = bits[(y + 8) * 64 + x + 4];
+        texbuf[0][y * 56 + x] = ice ? (lit ? 0xe0fbff : 0x2f6f7f) : lit ? 0x4fa82a : 0x0d1a0a;   // ice: pale blue
+      }
       Tex tx = { 56, 56, texbuf[0] }; gfx_quad(P, &tx, 0, light(nf));
     } else gfx_quad(P, &backTex, 0, light(nf));
     for (int k = 0; k < 4; k++) gfx_line3(P[k], P[(k + 1) & 3], C_EDGE, 1);
@@ -619,7 +629,7 @@ static void draw_vmx(int x, int y, int scale, const uint8_t *b) {   // the VMX w
 }
 static void draw_room_editor(void) {
   memset(bits, 0, sizeof bits);
-  vmx_room(bits, L.wall, L.target, L.box, L.btn, rf, rrot, L.player, &S, 0);
+  vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, rf, rrot, L.player, &S, 0);
   const int S7 = 7, X0 = 24, Y0 = 56;          // the room 7x bigger: a cell is 49 px
   for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S7, Y0 + y * S7, S7, S7, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
   uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
@@ -628,12 +638,10 @@ static void draw_room_editor(void) {
   snprintf(s, sizeof s, "CELL %d %s", rf >> 1, rf & 1 ? "BACK" : "FRONT"); gfx_text(X0, 30, 2, C_TEXT, s);
   int px0 = 440;
   gfx_text(px0, 56, 2, C_DIM, "TILES  L/R");
-  for (int k = 0; k < 6; k++) gfx_text(px0, 80 + k * 18, 2, k == item ? C_HI : C_TEXT, ITEMS[k]);
-  gfx_text(px0, 200, 2, C_DIM, "A PLACE");
-  gfx_text(px0, 218, 2, C_DIM, "B FLOOR");
-  gfx_text(px0, 236, 2, C_DIM, "DPAD NEXT CELL");
-  gfx_text(px0, 254, 2, C_DIM, "Y CELL");
-  gfx_text(px0, 272, 2, C_DIM, "X LEVEL");
+  for (int k = 0; k < NITEMS; k++) gfx_text(px0, 80 + k * 18, 2, k == item ? C_HI : C_TEXT, ITEMS[k]);
+  int hy = 92 + NITEMS * 18;
+  gfx_text(px0, hy, 2, C_DIM, "A PLACE"); gfx_text(px0, hy + 18, 2, C_DIM, "B FLOOR");
+  gfx_text(px0, hy + 36, 2, C_DIM, "DPAD NEXT CELL"); gfx_text(px0, hy + 54, 2, C_DIM, "Y CELL"); gfx_text(px0, hy + 72, 2, C_DIM, "X LEVEL");
 }
 void app_draw(void) {
   gfx_clear(C_BG);
@@ -655,7 +663,7 @@ void app_draw(void) {
     if (vmxWin) {                             // the VMX window: the room under the cursor, as on the handheld
       static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
       int i = find_sq(co, ce1, ce2);
-      if (i >= 0) { int f = sq_face_toward_eye(i); if (sides[i] >> (f & 1) & 1) vmx_room(b, L.wall, L.target, L.box, L.btn, f, 0, L.player, &S, 0); else vmx_text(b, 12, 28, "NO ROOM"); }
+      if (i >= 0) { int f = sq_face_toward_eye(i); if (sides[i] >> (f & 1) & 1) vmx_room(b, L.wall, L.target, L.box, L.btn, L.kind, L.aux, f, 0, L.player, &S, 0); else vmx_text(b, 12, 28, "NO ROOM"); }
       else vmx_text(b, 4, 28, "EMPTY SPACE");
       draw_vmx(GW - 64 * 2 - 30, GH - 64 * 2 - 52, 2, b);
     }

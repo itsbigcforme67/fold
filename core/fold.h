@@ -16,7 +16,14 @@
 #define FOLD_MAXBTN 16
 #define FOLD_MAXACT 8                     // room moves per button
 #define FOLD_MAXSOL 4096
-#define FOLD_MAXUNDO 2048
+#define FOLD_MAXUNDO 2048                 // moves that can be undone
+#ifndef FOLD_JOURNAL
+#define FOLD_JOURNAL 65536                // logged changes behind them (4 bytes each)
+#endif
+
+// tile kinds (kind[]): what a floor tile is, beyond plain floor. aux[] holds its value (a one-way's direction in its
+// cell's frame, ...). Walls, targets, boxes and buttons have their own arrays.
+enum { FK_FLOOR = 0, FK_ICE = 1 };
 
 typedef struct { int8_t o[3], u[3], v[3], n[3]; } FoldSquare;   // n = v x u: the front's outward normal
 typedef struct { char kind; uint8_t sq; char spec[3]; } FoldAct; // kind f r s h; spec "u".."i" or "<e><+|->"
@@ -26,6 +33,7 @@ typedef struct {
   int nsq;
   FoldSquare sq[FOLD_MAXSQ];
   uint8_t wall[FOLD_MAXC], target[FOLD_MAXC], box[FOLD_MAXC], btn[FOLD_MAXC];   // btn = button number (from 1)
+  uint8_t kind[FOLD_MAXC], aux[FOLD_MAXC];
   int player;
   int nbtn;
   int nact[FOLD_MAXBTN]; FoldAct act[FOLD_MAXBTN][FOLD_MAXACT];
@@ -41,16 +49,18 @@ typedef struct {
   FoldJoin adj[FOLD_MAXF][4];
 } FoldSurface;
 
-typedef struct { int16_t p, from, to; uint8_t camf, camrot, btn; } FoldUndo;   // to = -1: no push
+// a move, for undo: where you were and the start of its changes in the journal
+typedef struct { int16_t p; uint8_t camf, camrot, pushed; uint32_t j; } FoldUndo;
 
 typedef struct {
   const FoldLevel *lv;
   FoldSurface s;
-  uint8_t wall[FOLD_MAXC], target[FOLD_MAXC], box[FOLD_MAXC], btn[FOLD_MAXC];
+  uint8_t wall[FOLD_MAXC], target[FOLD_MAXC], box[FOLD_MAXC], btn[FOLD_MAXC], kind[FOLD_MAXC], aux[FOLD_MAXC];
   uint8_t flips[FOLD_MAXSQ], turns[FOLD_MAXSQ], moved[FOLD_MAXSQ];
   int p, camf, camrot;                    // you; the room on screen and how it is turned
   int moves, pushes;
   int nundo; FoldUndo undo[FOLD_MAXUNDO];
+  uint32_t nj; uint32_t journal[FOLD_JOURNAL];   // every change a move made: array << 24 | index << 8 | old value
 } FoldGame;
 
 // what a move did (fold_move's result bits)

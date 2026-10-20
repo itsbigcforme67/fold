@@ -82,7 +82,7 @@ int fold_step(const FoldSurface *s, int c, int d, int *nd) {
   return a.f * NN + y2 * N + x2;
 }
 
-// ---- room moves --------------------------------------------------------------------------------------------------
+// ---- cell geometry: where tiles go when a cell flips or turns, where a shift / hinge puts it ----------------------------
 static int twin(int c) { int f = c / NN, x = c % N, y = (c / N) % N; return (f ^ 1) * NN + y * N + (N - 1 - x); }
 static int rot_cell(int c) {                 // a quarter turn clockwise as seen from the front
   int f = c / NN, x = c % N, y = (c / N) % N;
@@ -121,38 +121,61 @@ static void rebuild(FoldGame *g) {
   for (int i = 0; i < g->lv->nsq; i++) sq[i] = g->moved[i] ? fold_geo_pose(g->lv->sq[i], &g->lv->geoAct[i]) : g->lv->sq[i];
   fold_surface(&g->s, sq, g->lv->nsq);
 }
+
+// ---- changes, logged for undo -----------------------------------------------------------------------------------
+// Every change a move makes goes through set(): the old value is logged, and undo plays the log backwards. That keeps
+// undo exact whatever a move does (slides, room moves, ...).
+enum { A_WALL, A_TARGET, A_BOX, A_BTN, A_KIND, A_AUX, A_FLIPS, A_TURNS, A_MOVED, A_N };
+static uint8_t *arr(FoldGame *g, int a) {
+  switch (a) { case A_WALL: return g->wall; case A_TARGET: return g->target; case A_BOX: return g->box; case A_BTN: return g->btn;
+               case A_KIND: return g->kind; case A_AUX: return g->aux; case A_FLIPS: return g->flips; case A_TURNS: return g->turns; }
+  return g->moved;
+}
+static void drop_oldest(FoldGame *g) {        // the journal or the move list is full: forget the oldest move
+  uint32_t cut = g->nundo > 1 ? g->undo[1].j : g->nj;
+  memmove(g->journal, g->journal + cut, sizeof(uint32_t) * (g->nj - cut)); g->nj -= cut;
+  memmove(g->undo, g->undo + 1, sizeof(FoldUndo) * (g->nundo - 1)); g->nundo--;
+  for (int k = 0; k < g->nundo; k++) g->undo[k].j -= cut;
+}
+static void set(FoldGame *g, int a, int i, int v) {
+  uint8_t *p = arr(g, a);
+  if (p[i] == v) return;
+  while (g->nj == FOLD_JOURNAL && g->nundo > 1) drop_oldest(g);
+  if (g->nj < FOLD_JOURNAL) g->journal[g->nj++] = (uint32_t)a << 24 | (uint32_t)i << 8 | p[i];
+  p[i] = (uint8_t)v;
+}
+
+// ---- room moves --------------------------------------------------------------------------------------------------
+// A tile carried to another spot: all its layers move; a direction it holds is turned / mirrored with it.
+typedef struct { uint8_t v[6]; } TileV;
+static TileV tile_get(FoldGame *g, int c) { TileV t = { { g->wall[c], g->target[c], g->box[c], g->btn[c], g->kind[c], g->aux[c] } }; return t; }
+static void tile_put(FoldGame *g, int c, TileV t) { for (int a = 0; a < 6; a++) set(g, a, c, t.v[a]); }
 static void flip_square(FoldGame *g, int i) {
   for (int c = 2 * i * NN; c < (2 * i + 1) * NN; c++) {
-    int t = twin(c); uint8_t k;
-    k = g->wall[c]; g->wall[c] = g->wall[t]; g->wall[t] = k;
-    k = g->target[c]; g->target[c] = g->target[t]; g->target[t] = k;
-    k = g->btn[c]; g->btn[c] = g->btn[t]; g->btn[t] = k;
-    k = g->box[c]; g->box[c] = g->box[t]; g->box[t] = k;
+    int t = twin(c); TileV a = tile_get(g, c), b = tile_get(g, t);
+    tile_put(g, c, b); tile_put(g, t, a);
   }
   if ((g->p / NN) >> 1 == i) g->p = twin(g->p);
   if (g->camf >> 1 == i) g->camf ^= 1;
-  g->flips[i] ^= 1;
+  set(g, A_FLIPS, i, g->flips[i] ^ 1);
 }
 static void turn_square(FoldGame *g, int i) {
-  uint8_t old[2 * NN]; int lo = 2 * i * NN;
-  uint8_t *arr[4] = { g->wall, g->target, g->btn, g->box };
-  for (int k = 0; k < 4; k++) {
-    memcpy(old, arr[k] + lo, 2 * NN);
-    for (int c = lo; c < lo + 2 * NN; c++) arr[k][rot_cell(c)] = old[c - lo];
-  }
+  TileV old[2 * NN]; int lo = 2 * i * NN;
+  for (int c = lo; c < lo + 2 * NN; c++) old[c - lo] = tile_get(g, c);
+  for (int c = lo; c < lo + 2 * NN; c++) tile_put(g, rot_cell(c), old[c - lo]);
   if ((g->p / NN) >> 1 == i) g->p = rot_cell(g->p);
   if (g->camf >> 1 == i) {                    // your room holds still on screen: the view turns with it
     int c = g->camf * NN + 2 * N + 1, r = rot_cell(c), sx, sy;
     fold_to_screen(1, 2, g->camrot, &sx, &sy);
     for (int q = 0; q < 4; q++) { int x, y; fold_to_screen(r % N, (r / N) % N, q, &x, &y); if (x == sx && y == sy) { g->camrot = q; break; } }
   }
-  g->turns[i] = (g->turns[i] + 1) & 3;
+  set(g, A_TURNS, i, (g->turns[i] + 1) & 3);
 }
-static int apply_act(FoldGame *g, const FoldAct *a, int undo) {   // undo: the inverse (turns go back a quarter)
+static int apply_act(FoldGame *g, const FoldAct *a) {
   switch (a->kind) {
     case 'f': flip_square(g, a->sq); return FOLD_FLIPPED;
-    case 'r': for (int k = 0; k < (undo ? 3 : 1); k++) turn_square(g, a->sq); return FOLD_TURNED;
-    default: g->moved[a->sq] ^= 1; rebuild(g); return a->kind == 's' ? FOLD_SHIFTED : FOLD_HINGED;
+    case 'r': turn_square(g, a->sq); return FOLD_TURNED;
+    default: set(g, A_MOVED, a->sq, g->moved[a->sq] ^ 1); rebuild(g); return a->kind == 's' ? FOLD_SHIFTED : FOLD_HINGED;
   }
 }
 
@@ -162,43 +185,69 @@ void fold_start(FoldGame *g, const FoldLevel *lv) {
   g->lv = lv;
   memcpy(g->wall, lv->wall, sizeof g->wall); memcpy(g->target, lv->target, sizeof g->target);
   memcpy(g->box, lv->box, sizeof g->box); memcpy(g->btn, lv->btn, sizeof g->btn);
+  memcpy(g->kind, lv->kind, sizeof g->kind); memcpy(g->aux, lv->aux, sizeof g->aux);
   fold_surface(&g->s, lv->sq, lv->nsq);
   g->p = lv->player; g->camf = g->p / NN; g->camrot = 0;
+}
+// can a box (box = 1) or you (box = 0) go onto tile c, arriving with heading d?
+static int enterable(const FoldGame *g, int c, int d, int box) {
+  (void)d; (void)box;
+  if (c < 0 || g->wall[c]) return 0;
+  return 1;
+}
+// a box arrives at c heading d: on ice it keeps sliding until the next tile won't take it. Returns where it stops.
+static int box_slide(FoldGame *g, int c, int d) {
+  for (int guard = 0; guard < FOLD_MAXC && g->kind[c] == FK_ICE; guard++) {
+    int nd, n = fold_step(&g->s, c, d, &nd);
+    if (n < 0 || !enterable(g, n, nd, 1) || g->box[n] || n == g->p) break;
+    set(g, A_BOX, c, 0); set(g, A_BOX, n, 1); c = n; d = nd;
+  }
+  return c;
 }
 int fold_move(FoldGame *g, int sd) {
   int d = (sd + g->camrot) & 3, d1, d2;
   int c1 = fold_step(&g->s, g->p, d, &d1);
-  if (c1 < 0 || g->wall[c1]) return 0;
+  if (!enterable(g, c1, d1, 0)) return 0;
   int c2 = -1;
   if (g->box[c1]) {
     c2 = fold_step(&g->s, c1, d1, &d2);
-    if (c2 < 0 || g->wall[c2] || g->box[c2]) return 0;
+    if (!enterable(g, c2, d2, 1) || g->box[c2]) return 0;
   }
-  if (g->nundo == FOLD_MAXUNDO) { memmove(g->undo, g->undo + 1, sizeof(FoldUndo) * (FOLD_MAXUNDO - 1)); g->nundo--; }
+  if (g->nundo == FOLD_MAXUNDO) drop_oldest(g);
   FoldUndo *u = &g->undo[g->nundo++];
-  u->p = g->p; u->from = c1; u->to = c2; u->camf = g->camf; u->camrot = g->camrot; u->btn = 0;
+  u->p = (int16_t)g->p; u->camf = (uint8_t)g->camf; u->camrot = (uint8_t)g->camrot; u->pushed = c2 >= 0; u->j = g->nj;
   int r = FOLD_MOVED;
-  if (c2 >= 0) { g->box[c1] = 0; g->box[c2] = 1; g->pushes++; r |= FOLD_PUSHED; }
-  g->p = c1; g->moves++;
-  if (c1 / NN != g->camf) { g->camf = c1 / NN; g->camrot = (d1 - sd) & 3; r |= FOLD_CROSSED; }
+  if (c2 >= 0) {                              // the push: the box may slide on ice, then press what it stops on
+    set(g, A_BOX, c1, 0); set(g, A_BOX, c2, 1); g->pushes++; r |= FOLD_PUSHED;
+    g->p = c1;                                 // you are behind it now (so it can't slide back through you)
+    c2 = box_slide(g, c2, d2);
+  }
+  int c = c1, hd = d1;                        // you: one step, then on ice keep sliding (a box stops you)
+  for (int guard = 0; guard < FOLD_MAXC && g->kind[c] == FK_ICE; guard++) {
+    int nd, n = fold_step(&g->s, c, hd, &nd);
+    if (!enterable(g, n, nd, 0) || g->box[n]) break;
+    c = n; hd = nd;
+  }
+  g->p = c; g->moves++;
+  if (c / NN != g->camf) { g->camf = c / NN; g->camrot = (hd - sd) & 3; r |= FOLD_CROSSED; }
   if (c2 >= 0 && g->btn[c2]) {
-    int b = g->btn[c2] - 1; u->btn = b + 1;
-    for (int k = 0; k < g->lv->nact[b]; k++) r |= apply_act(g, &g->lv->act[b][k], 0);
+    int b = g->btn[c2] - 1;
+    for (int k = 0; k < g->lv->nact[b]; k++) r |= apply_act(g, &g->lv->act[b][k]);
   }
   return r;
 }
 int fold_undo(FoldGame *g) {
   if (!g->nundo) return 0;
   FoldUndo *u = &g->undo[--g->nundo];
-  if (u->btn) {                               // put the rooms back first, last move first
-    int b = u->btn - 1;
-    for (int k = g->lv->nact[b] - 1; k >= 0; k--) apply_act(g, &g->lv->act[b][k], 1);
+  int geo = 0;
+  while (g->nj > u->j) {                      // play the move's changes backwards
+    uint32_t e = g->journal[--g->nj];
+    int a = (int)(e >> 24), i = (int)(e >> 8 & 0xffff);
+    arr(g, a)[i] = (uint8_t)(e & 0xff);
+    if (a == A_MOVED) geo = 1;
   }
-  if (u->to >= 0) {
-    // the pushed box may have ridden a room move: it sits on the button cell, which the inverse moves put back
-    g->box[u->to] = 0; g->box[u->from] = 1; g->pushes--;
-  }
-  g->p = u->p; g->camf = u->camf; g->camrot = u->camrot; g->moves--;
+  if (geo) rebuild(g);
+  g->p = u->p; g->camf = u->camf; g->camrot = u->camrot; g->moves--; g->pushes -= u->pushed;
   return 1;
 }
 int fold_solved(const FoldGame *g) {
@@ -238,7 +287,8 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO", ch)) FAIL("line %d: unknown cell '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (ch == '~') lv->kind[c] = FK_ICE;
         lv->wall[c] = ch == '#';
         if (strchr("xBP", ch)) lv->target[c] = 1;
         if (strchr("bBO", ch)) lv->box[c] = 1;
@@ -280,6 +330,12 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
         if ((a->kind == 's' || a->kind == 'h') && !lv->geo[a->sq]) { lv->geo[a->sq] = 1; lv->geoAct[a->sq] = *a; }
         w += n;
       }
+    }
+    else if (!strcmp(word, "box") || !strcmp(word, "player")) {   // a box / the player on any tile
+      int i, x, y; char side;
+      if (sscanf(rest, "%d %c %d %d", &i, &side, &x, &y) != 4 || i < 0 || i >= lv->nsq || x < 0 || y < 0 || x >= N || y >= N) FAIL("line %d: %s <square> <f|b> <x> <y>", lineno, word);
+      int c = (2 * i + (side == 'b')) * NN + y * N + x;
+      if (word[0] == 'b') lv->box[c] = 1; else lv->player = c;
     }
     else if (!strcmp(word, "sol")) {
       for (const char *c = rest; *c; c++) if (*c >= '0' && *c <= '3' && lv->nsol < FOLD_MAXSOL) lv->sol[lv->nsol++] = *c;

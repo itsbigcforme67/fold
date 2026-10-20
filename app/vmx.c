@@ -13,6 +13,7 @@ static const char *TARGET[7] = { ".......", ".......", "..###..", "..#.#..", "..
 const char *VMX_MAN[7] = { "..###..", "..###..", "...#...", ".#####.", "...#...", "..#.#..", ".#...#." };
 static const char *FLOOR[7] = { ".......", ".......", ".......", "...#...", ".......", ".......", "......." };
 static const char *ARROW[7] = { ".......", "...#...", "..###..", ".#.#.#.", "...#...", ".......", "......." };   // up
+static const char *ICE[7] = { ".......", ".#.....", "..#....", ".......", "....#..", ".....#.", "......." };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
 static void px(uint8_t *b, int x, int y, int v) { if (x >= 0 && y >= 0 && x < 64 && y < 64) b[y * 64 + x] = (uint8_t)v; }
@@ -28,7 +29,9 @@ static void arrow(uint8_t *b, int x, int y, int sd) {   // the arrow turned to p
     px(b, x + ax, y + ay, 1);
   }
 }
-void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint8_t *box, const uint8_t *btn, int f, int rot, int player, const FoldSurface *s, int flags) {
+void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint8_t *box, const uint8_t *btn,
+              const uint8_t *kind, const uint8_t *aux, int f, int rot, int player, const FoldSurface *s, int flags) {
+  (void)aux;
   if (flags & VMX_FLOOR_ONLY) player = -1;
   for (int fy = 0; fy < FOLD_N; fy++) for (int fx = 0; fx < FOLD_N; fx++) {
     int c = f * FOLD_NN + fy * FOLD_N + fx, sx, sy;
@@ -42,7 +45,10 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
     }
     int hasBox = box[c] && !(flags & VMX_FLOOR_ONLY), out = fy == 0 ? 0 : fx == FOLD_N - 1 ? 1 : fy == FOLD_N - 1 ? 2 : fx == 0 ? 3 : -1, nd;
     int e = s && out >= 0 ? fold_step(s, c, out, &nd) : -1;
-    if (!target[c] && !btn[c] && !hasBox && c != player) { if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3); else sprite(b, x, y, FLOOR); }
+    if (!target[c] && !btn[c] && !hasBox && c != player) {
+      if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
+      else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
+    }
     if (btn[c] && !hasBox && c != player) sprite(b, x, y, BUTTON);
     if (target[c] && !hasBox) sprite(b, x, y, TARGET);
     if (hasBox) sprite(b, x, y, target[c] ? VMX_BOXON : VMX_BOX);
@@ -52,7 +58,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
 
 void vmx_game(uint8_t *b, const FoldGame *g, int level, const char *line2) {
   memset(b, 0, 64 * 64);
-  vmx_room(b, g->wall, g->target, g->box, g->btn, g->camf, g->camrot, g->p, &g->s, 0);
+  vmx_room(b, g->wall, g->target, g->box, g->btn, g->kind, g->aux, g->camf, g->camrot, g->p, &g->s, 0);
   char s[16]; int left = 0;
   for (int c = 0; c < 2 * g->lv->nsq * FOLD_NN; c++) if (g->box[c] && !g->target[c]) left++;
   snprintf(s, sizeof s, "%02d", level); vmx_text(b, 1, 1, s);
