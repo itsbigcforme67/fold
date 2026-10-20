@@ -28,7 +28,14 @@ fi
 AUTH+=(--ftp-port -)     # Evolution X's FTP server answers 502 to EPSV / PASV: active mode only
 URL=ftp://$XBOX/${XBOX_DIR:-E/Games/FOLD}
 cd $SRC
-for f in default.xbe assets/* levels/*; do
-	echo "-> $f"; curl -sS "${AUTH[@]}" --ftp-create-dirs -T "$f" "$URL/$f"
-done
+# Evolution X's FTP sometimes stops taking data mid-file (the laptop's send queue sits full): a file that makes
+# no progress for 15 s is given up and sent again, up to 4 tries
+put() {
+	for try in 1 2 3 4; do
+		curl -sS "${AUTH[@]}" --ftp-create-dirs --speed-limit 1 --speed-time 15 -T "$1" "$URL/$1" && return 0
+		echo "   stalled, again ($try)"; sleep 2
+	done
+	echo "   could not copy $1"; return 1
+}
+for f in default.xbe assets/* levels/*; do echo "-> $f"; put "$f"; done
 echo "done: on the Xbox, Play Games from Hard Drive -> FOLD"
