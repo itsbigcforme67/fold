@@ -65,4 +65,6 @@ int fold_move(FoldGame *g, int screendir);   // 0 up 1 right 2 down 3 left, as o
 int fold_undo(FoldGame *g);                  // 1 = undone
 int fold_solved(const FoldGame *g);
 void fold_to_screen(int fx, int fy, int rot, int *sx, int *sy);   // room cell -> screen cell, room turned by rot
+FoldSquare fold_geo_pose(FoldSquare q, const FoldAct *a);           // where a shift / hinge puts a square
+int fold_overlap(const FoldSquare *sq, int nsq);                    // 1 if two squares are in the same place
 #endif

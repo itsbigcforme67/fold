@@ -21,4 +21,20 @@ keeps snapshots of it. See `docs/PLAN.md`.
 - `core/`: the C core (C99, no allocation, ~60 KB of state). `make test` replays all 15 levels and undoes every
   move back to the start; `make parity` checks it against the JavaScript core move by move.
 - `levels/`: the 15 levels as `.fold` files (`docs/FORMAT.md`), exported from the JavaScript version.
-- Next: the PC build (3D view, editor, VMX window), then the original Xbox build. See `docs/PLAN.md`.
+- `app/`: the level editor + playtest + VMX window, on a small software renderer (640x480, the same picture on PC
+  and the original Xbox). `make app` builds `build/fold` (SDL2 window) and `build/fold_headless` (scripted input,
+  screenshots; used for testing). Run `build/fold levels`. Pad or keyboard (WASD stick, arrows D-pad, Z A, X B, C X,
+  V Y, Q L, E R, Esc START).
+- Next: the original Xbox build of the app (nxdk, its SDL2), real-3D play, then the VMX link. See `docs/PLAN.md`.
+
+## Editor controls
+
+Shape view: left stick moves the cursor cell on the working plane; A places a tile (facing you), B removes it; the
+D-pad folds the working plane 90 degrees about the cursor cell's edge, wrapping away from you round the shape, and
+the view turns to face the new plane; L / R turn the view 90 degrees, the right stick turns and tilts it; X opens the
+room on the side facing you; Y opens the tile's settings (its room move, the button that triggers it, its back room);
+START opens the menu (playtest, VMX window, save, load, new level).
+
+Room editor: left stick moves the cell cursor (off an edge it carries on into the next room); the D-pad jumps to the
+next room; A paints (wall, floor, box, target, button, player; L / R pick), B clears to floor; a doorway painted on
+the outer ring opens in the room beyond too; X goes back to the shape view.

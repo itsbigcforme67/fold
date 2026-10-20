@@ -93,7 +93,7 @@ void fold_to_screen(int fx, int fy, int rot, int *sx, int *sy) {
                      case 2: *sx = N - 1 - fx; *sy = N - 1 - fy; break; default: *sx = N - 1 - fy; *sy = fx; }
 }
 static V3 rot90(V3 w, V3 a, int sgn) { return add(mul(cross(a, w), sgn), mul(a, dot(a, w))); }   // about unit a
-static FoldSquare geo_pose(FoldSquare q, const FoldAct *a) {
+FoldSquare fold_geo_pose(FoldSquare q, const FoldAct *a) {
   V3 o = v3(q.o), u = v3(q.u), v = v3(q.v), n = v3(q.n);
   if (a->kind == 's') {
     V3 d = a->spec[0] == 'u' ? neg(v) : a->spec[0] == 'd' ? v : a->spec[0] == 'l' ? neg(u) : a->spec[0] == 'r' ? u :
@@ -109,9 +109,16 @@ static FoldSquare geo_pose(FoldSquare q, const FoldAct *a) {
   for (int i = 0; i < 3; i++) { q.o[i] = o.x[i]; q.u[i] = u.x[i]; q.v[i] = v.x[i]; q.n[i] = n.x[i]; }
   return q;
 }
+int fold_overlap(const FoldSquare *sq, int nsq) {   // same middle (doubled, so integer) and the same plane
+  for (int i = 0; i < nsq; i++) for (int j = i + 1; j < nsq; j++) {
+    V3 mi = add(mul(v3(sq[i].o), 2), add(v3(sq[i].u), v3(sq[i].v))), mj = add(mul(v3(sq[j].o), 2), add(v3(sq[j].u), v3(sq[j].v)));
+    if (eq(mi, mj) && abs(dot(v3(sq[i].n), v3(sq[j].n))) == 1) return 1;
+  }
+  return 0;
+}
 static void rebuild(FoldGame *g) {
   FoldSquare sq[FOLD_MAXSQ];
-  for (int i = 0; i < g->lv->nsq; i++) sq[i] = g->moved[i] ? geo_pose(g->lv->sq[i], &g->lv->geoAct[i]) : g->lv->sq[i];
+  for (int i = 0; i < g->lv->nsq; i++) sq[i] = g->moved[i] ? fold_geo_pose(g->lv->sq[i], &g->lv->geoAct[i]) : g->lv->sq[i];
   fold_surface(&g->s, sq, g->lv->nsq);
 }
 static void flip_square(FoldGame *g, int i) {

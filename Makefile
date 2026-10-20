@@ -17,4 +17,17 @@ parity: build/levels
 	@if cmp -s build/trace_js.txt build/trace_c.txt; then echo "parity: C and JavaScript agree on every move ($$(grep -vc '^#' build/trace_c.txt) moves)"; \
 	else echo "parity: DIFFERENT"; diff build/trace_js.txt build/trace_c.txt | head -20; exit 1; fi
 
-.PHONY: test parity
+APP = app/app.c app/gfx.c app/vmx.c core/fold.c
+APPH = app/app.h app/gfx.h app/vmx.h core/fold.h
+
+build/fold_headless: app/main_headless.c $(APP) $(APPH)
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o $@ app/main_headless.c $(APP) -lm
+
+build/fold: app/main_sdl.c $(APP) $(APPH)
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o $@ app/main_sdl.c $(APP) $$(sdl2-config --cflags --libs) -lm
+
+app: build/fold build/fold_headless
+
+.PHONY: test parity app
