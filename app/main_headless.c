@@ -4,12 +4,13 @@
 // frame); "hold <button> <frames>"; "stick <lx> <ly> <frames>"; "rstick <rx> <ry> <frames>"; "wait <frames>";
 // "zoom <ry> <frames>" (BACK + right stick); "load <file>"; "save <file>"; "shot <file.ppm>"; "#" comments;
 // "set <button|-> lx ly rx ry" (stays held); "rec <dir>" saves every frame as dir/NNNNN.ppm until "rec off";
-// "caption <words>" labels the recorded frames ("caption" alone clears it).
+// "caption <words>" labels the recorded frames ("caption" alone clears it); "bench <n>" times n frames.
 #include "app.h"
 #include "gfx.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 static void shot(const char *f) {
   FILE *o = fopen(f, "wb"); if (!o) { printf("can't write %s\n", f); return; }
@@ -56,6 +57,10 @@ int main(int argc, char **argv) {
     else if (!strcmp(w, "set") && sscanf(line, "%*s %31s %f %f %f %f", a, &p.lx, &p.ly, &p.rx, &p.ry) == 5) p.held = bit(a);   // stays set (- = no button)
     else if (!strcmp(w, "caption")) { char *t = line + 7; while (*t == ' ') t++; snprintf(caption, sizeof caption, "%s", t); caption[strcspn(caption, "\r\n")] = 0; }
     else if (!strcmp(w, "rec") && sscanf(line, "%*s %199s", a) == 1) { if (!strcmp(a, "off")) recDir[0] = 0; else snprintf(recDir, sizeof recDir, "%s", a); }
+    else if (!strcmp(w, "bench") && sscanf(line, "%*s %d", &n) == 1) {   // draw n frames (ticking each), print the time a draw takes
+      clock_t c0 = clock(); for (int i = 0; i < n; i++) { app_frame(&p); app_draw(); }
+      printf("bench: %.2f ms a frame\n", (double)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC / n);
+    }
     else if (!strcmp(w, "load") && sscanf(line, "%*s %199s", a) == 1) { if (!app_load(a)) printf("line %d: load failed\n", lineno); }
     else if (!strcmp(w, "save") && sscanf(line, "%*s %199s", a) == 1) { if (!app_save(a)) printf("line %d: save failed\n", lineno); }
     else if (!strcmp(w, "shot") && sscanf(line, "%*s %199s", a) == 1) { app_draw(); shot(a); }

@@ -206,7 +206,7 @@ static void thumbstick(Xf base, float tiltX, float tiltY, uint32_t cap, int whic
 }
 
 // ---- the four panels ----------------------------------------------------------------------------------------------
-void icons_stick(int x, int y, int w, int h) {   // the left stick moves the cursor over the grid
+static void draw_stick(int x, int y, int w, int h) {   // the left stick moves the cursor over the grid
   scene(x, y, w, h, 15, 0.62f, 4.8f);
   float bob = sinf(tt * 0.05f) * 0.03f;
   Xf b = xf(v3f(-1.3f, 0, bob));
@@ -227,7 +227,7 @@ void icons_stick(int x, int y, int w, int h) {   // the left stick moves the cur
   }
   done();
 }
-void icons_dpad(int x, int y, int w, int h) {    // the D-pad turns the working plane
+static void draw_dpad(int x, int y, int w, int h) {    // the D-pad turns the working plane
   scene(x, y, w, h, 15, 0.72f, 4.8f);
   Xf b = rot(rot(xf(v3f(-1.15f, 0, 0)), 2, -32), 0, 20);              // stood up, turned away to the left
   Xf d = rot(rot(b, 1, dpX * 16), 0, -dpY * 16);                        // tipped by a press
@@ -256,7 +256,7 @@ void icons_dpad(int x, int y, int w, int h) {    // the D-pad turns the working 
   quad(P(&p, -s, -s, 0), P(&p, s, -s, 0), P(&p, s, s, 0), P(&p, -s, s, 0), 0x52c41a, 0x3a8a14);
   done();
 }
-void icons_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style: Y X B A
+static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style: Y X B A
   scene(x, y, w, h, 13, 0.95f, 2.9f);
   struct { float x, y; uint32_t c; const char *l; } fb[4] = { { -0.2f, 0.8f, 0xe8d020, "Y" }, { -0.8f, 0.1f, 0x2050e0, "X" },
                                                             { 0.75f, 0.25f, 0xe02828, "B" }, { 0.15f, -0.6f, 0x52d020, "A" } };
@@ -287,7 +287,7 @@ void icons_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style
   }
   done();
 }
-void icons_camera(int x, int y, int w, int h) {  // the camera turns with the right stick (and L / R)
+static void draw_camera(int x, int y, int w, int h) {  // the camera turns with the right stick (and L / R)
   scene(x, y, w, h, 15, 0.5f, 5.0f);
   Xf c = rot(rot(xf(v3f(-1.45f, 0, 0.35f)), 2, 15 + rsX * 30), 1, rsY * 15);   // a film camera, turned by the stick
   box(&c, 0, 0, 0, 0.9f, 0.45f, 0.5f, 0x242424);
@@ -303,3 +303,30 @@ void icons_camera(int x, int y, int w, int h) {  // the camera turns with the ri
   thumbstick(b, rsX, -rsY, INK, STICK_R);
   done();
 }
+
+// ---- the panels, cached: a panel is drawn again only while its control is in use (or still easing back), or, for the
+// two with an idle animation, every other frame; otherwise its last picture is copied back (the software renderer's
+// biggest saving on the Xbox)
+static uint32_t cache[4][170 * 140]; static int cacheOk[4], cacheX[4], cacheY[4], cacheW[4], cacheH[4], drawN;
+static void panel(int k, int x, int y, int w, int h, int active, int idleAnim, void (*draw)(int, int, int, int)) {
+  if (k == 0) drawN++;
+  int fresh = cacheOk[k] && cacheX[k] == x && cacheY[k] == y && cacheW[k] == w && cacheH[k] == h && w * h <= 170 * 140;
+  int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w > GW ? GW : x + w, y1 = y + h > GH ? GH : y + h;
+  if (fresh && !active && !(idleAnim && ((drawN + k) & 1))) {
+    for (int j = y0; j < y1; j++) memcpy(gfx_px + j * GW + x0, cache[k] + (j - y) * w + (x0 - x), sizeof(uint32_t) * (size_t)(x1 - x0));
+    return;
+  }
+  draw(x, y, w, h);
+  if (w * h > 170 * 140) return;
+  for (int j = y0; j < y1; j++) memcpy(cache[k] + (j - y) * w + (x0 - x), gfx_px + j * GW + x0, sizeof(uint32_t) * (size_t)(x1 - x0));
+  cacheOk[k] = 1; cacheX[k] = x; cacheY[k] = y; cacheW[k] = w; cacheH[k] = h;
+}
+static int moving(float v) { return v > 0.01f || v < -0.01f; }
+void icons_stick(int x, int y, int w, int h) { panel(0, x, y, w, h, moving(stX) || moving(stY) || moving(curX) || moving(curY), 1, draw_stick); }
+void icons_dpad(int x, int y, int w, int h) {
+  int a = moving(dpX) || moving(dpY) || moving((planeRx - goalRx) * 0.02f) || moving((planeRz - goalRz) * 0.02f);
+  for (int k = 0; k < 4; k++) a |= moving(pop[k]);
+  panel(1, x, y, w, h, a, 0, draw_dpad);
+}
+void icons_buttons(int x, int y, int w, int h) { panel(2, x, y, w, h, moving(press[0]) || moving(press[1]) || moving(press[2]) || moving(press[3]), 0, draw_buttons); }
+void icons_camera(int x, int y, int w, int h) { panel(3, x, y, w, h, moving(rsX) || moving(rsY), 1, draw_camera); }

@@ -11,10 +11,15 @@ static uint32_t fogC; static float fogS = 1e9f, fogE = 2e9f;
 static int vofsX, vofsY, clx0, cly0, clx1 = GW - 1, cly1 = GH - 1;
 static const uint8_t *metal; static int metalW, metalH;
 static uint8_t smask[GW * GH];
+static int sx0 = GW, sy0 = GH, sx1 = -1, sy1 = -1;   // where the shadow mask has anything
+static uint32_t mixw(uint32_t a, uint32_t b, uint32_t w) {   // a towards b by w / 256 (red and blue in one multiply)
+  uint32_t rb = (((a & 0xFF00FF) * (256 - w) + (b & 0xFF00FF) * w) >> 8) & 0xFF00FF;
+  uint32_t g = (((a & 0x00FF00) * (256 - w) + (b & 0x00FF00) * w) >> 8) & 0x00FF00;
+  return rb | g;
+}
 static uint32_t mix(uint32_t a, uint32_t b, float t) {   // a towards b by t
   if (t <= 0) return a; if (t >= 1) return b;
-  int r = (int)(((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t), g = (int)(((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t), bl = (int)((a & 255) * (1 - t) + (b & 255) * t);
-  return (uint32_t)(r << 16 | g << 8 | bl);
+  return mixw(a, b, (uint32_t)(t * 256));
 }
 static uint32_t fogged(uint32_t c, float z) { return z <= fogS ? c : mix(c, fogC, (z - fogS) / (fogE - fogS) * 0.85f); }
 
@@ -38,17 +43,27 @@ static void font_init(void) {
 
 const char *gfx_glyph(int ch) { font_init(); if (ch >= 'a' && ch <= 'z') ch -= 32; return ch > 0 && ch < 128 && FONT[ch] ? FONT[ch] : FONT[' ']; }
 void gfx_clear(uint32_t c) { for (int i = 0; i < GW * GH; i++) gfx_px[i] = c; }
-void gfx_gradient(uint32_t top, uint32_t bottom) {
-  for (int y = 0; y < GH; y++) {
-    uint32_t row = mix(top, bottom, (float)y / GH);
-    for (int x = 0; x < GW; x++) {
-      float dx = (x - GW / 2) / (float)(GW / 2), dy = (y - GH / 2) / (float)(GH / 2), v = (dx * dx + dy * dy) * 0.35f;
-      gfx_px[y * GW + x] = mix(row, 0x000000, v > 0.6f ? 0.6f : v);
+void gfx_gradient(uint32_t top, uint32_t bottom) {   // made once per pair of colours, then copied
+  static uint32_t bg[GW * GH], cTop = 1, cBot = 1;
+  if (top != cTop || bottom != cBot) {
+    cTop = top; cBot = bottom;
+    for (int y = 0; y < GH; y++) {
+      uint32_t row = mix(top, bottom, (float)y / GH);
+      for (int x = 0; x < GW; x++) {
+        float dx = (x - GW / 2) / (float)(GW / 2), dy = (y - GH / 2) / (float)(GH / 2), v = (dx * dx + dy * dy) * 0.35f;
+        bg[y * GW + x] = mix(row, 0x000000, v > 0.6f ? 0.6f : v);
+      }
     }
   }
+  memcpy(gfx_px, bg, sizeof bg);
 }
 void gfx_dim(int x, int y, int w, int h, float k) {
-  for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) for (int i = x < 0 ? 0 : x; i < x + w && i < GW; i++) gfx_px[j * GW + i] = mix(gfx_px[j * GW + i], 0, k);
+  uint32_t m = (uint32_t)((1 - k) * 256);
+  int x0 = x < 0 ? 0 : x, x1 = x + w > GW ? GW : x + w;
+  for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) {
+    uint32_t *r = gfx_px + j * GW;
+    for (int i = x0; i < x1; i++) { uint32_t c = r[i]; r[i] = ((((c & 0xFF00FF) * m) >> 8) & 0xFF00FF) | ((((c & 0x00FF00) * m) >> 8) & 0x00FF00); }
+  }
 }
 
 // ---- a 5x7 font for the interface -------------------------------------------------------------------------------
@@ -205,39 +220,60 @@ static uint32_t shade_lit(uint32_t c, float k) { // up to 1 darkens; above it, a
   return (uint32_t)((int)(r + (255 - r) * w) << 16 | (int)(g + (255 - g) * w) << 8 | (int)(b + (255 - b) * w));
 }
 static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t colour, float shade) {
-  float X[3], Y[3], IW[3], UW[3], VW[3], Z[3];
+  float X[3], Y[3], IW[3], UW[3], VW[3];
   const CV *v[3] = { a, b, c };
   for (int i = 0; i < 3; i++) {
     float iw = 1.0f / v[i]->c.w;
     X[i] = (v[i]->c.x * iw * 0.5f + 0.5f) * GW + vofsX; Y[i] = (0.5f - v[i]->c.y * iw * 0.5f) * GH + vofsY;
-    IW[i] = iw; UW[i] = v[i]->u * iw; VW[i] = v[i]->v * iw; Z[i] = v[i]->c.w;
+    IW[i] = iw; UW[i] = v[i]->u * iw; VW[i] = v[i]->v * iw;
   }
   float area = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
   if (fabsf(area) < 1e-6f) return;
   int x0 = (int)floorf(fminf(X[0], fminf(X[1], X[2]))), x1 = (int)ceilf(fmaxf(X[0], fmaxf(X[1], X[2])));
   int y0 = (int)floorf(fminf(Y[0], fminf(Y[1], Y[2]))), y1 = (int)ceilf(fmaxf(Y[0], fmaxf(Y[1], Y[2])));
   if (x0 < clx0) x0 = clx0; if (y0 < cly0) y0 = cly0; if (x1 > clx1) x1 = clx1; if (y1 > cly1) y1 = cly1;
+  if (x0 > x1 || y0 > y1) return;
+  // the barycentric weights w0, w1 (w2 = 1 - w0 - w1) and 1/w, u/w, v/w are linear across the screen: step them
+  float ia = 1.0f / area;
+  float w0x = (Y[1] - Y[2]) * ia, w0y = (X[2] - X[1]) * ia, w1x = (Y[2] - Y[0]) * ia, w1y = (X[0] - X[2]) * ia;
+  float px0 = x0 + 0.5f, py0 = y0 + 0.5f;
+  float w0r = ((X[1] - px0) * (Y[2] - py0) - (X[2] - px0) * (Y[1] - py0)) * ia;
+  float w1r = ((X[2] - px0) * (Y[0] - py0) - (X[0] - px0) * (Y[2] - py0)) * ia;
+  float dI0 = IW[0] - IW[2], dI1 = IW[1] - IW[2], dU0 = UW[0] - UW[2], dU1 = UW[1] - UW[2], dV0 = VW[0] - VW[2], dV1 = VW[1] - VW[2];
   uint32_t flat = shade_c(colour, shade);
-  for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++) {
-    float px = x + 0.5f, py = y + 0.5f;
-    float w0 = ((X[1] - px) * (Y[2] - py) - (X[2] - px) * (Y[1] - py)) / area;
-    float w1 = ((X[2] - px) * (Y[0] - py) - (X[0] - px) * (Y[2] - py)) / area;
-    float w2 = 1 - w0 - w1;
-    if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-    float iw = w0 * IW[0] + w1 * IW[1] + w2 * IW[2], z = 1.0f / iw;
-    int k = y * GW + x;
-    if (triMode == 2) { smask[k] = 1; continue; }
-    if (z >= zbuf[k]) continue;
-    if (triMode == 1) { gfx_px[k] = mix(gfx_px[k], fogged(flat, z), triAlpha); continue; }
-    uint32_t col = flat;
-    if (triMode == 3) col = shade_lit(colour, (w0 * UW[0] + w1 * UW[1] + w2 * UW[2]) * z);
-    else if (t) {
-      float u = (w0 * UW[0] + w1 * UW[1] + w2 * UW[2]) * z, vv = (w0 * VW[0] + w1 * VW[1] + w2 * VW[2]) * z;
-      int tx = (int)(u * t->w), ty = (int)(vv * t->h);
-      if (tx < 0) tx = 0; if (ty < 0) ty = 0; if (tx >= t->w) tx = t->w - 1; if (ty >= t->h) ty = t->h - 1;
-      col = shade_c(t->px[ty * t->w + tx], shade);
+  for (int y = y0; y <= y1; y++, w0r += w0y, w1r += w1y) {
+    // this row's span: where w0 >= 0, w1 >= 0 and w2 = 1 - w0 - w1 >= 0 (each linear in x)
+    float lo = 0, hi = (float)(x1 - x0), w2r = 1 - w0r - w1r, w2x = -w0x - w1x;
+    const float A[3] = { w0r, w1r, w2r }, D[3] = { w0x, w1x, w2x };
+    int empty = 0;
+    for (int k = 0; k < 3; k++) {
+      if (D[k] > 1e-12f) { float t = -A[k] / D[k]; if (t > lo) lo = t; }
+      else if (D[k] < -1e-12f) { float t = -A[k] / D[k]; if (t < hi) hi = t; }
+      else if (A[k] < 0) empty = 1;
     }
-    zbuf[k] = z; gfx_px[k] = fogged(col, z);
+    if (empty || lo > hi) continue;
+    int xs = x0 + (int)ceilf(lo - 1e-4f), xe = x0 + (int)floorf(hi + 1e-4f);
+    if (xs < x0) xs = x0; if (xe > x1) xe = x1;
+    float w0 = w0r + w0x * (xs - x0), w1 = w1r + w1x * (xs - x0);
+    float iw = IW[2] + w0 * dI0 + w1 * dI1, iwx = w0x * dI0 + w1x * dI1;
+    float uw = UW[2] + w0 * dU0 + w1 * dU1, uwx = w0x * dU0 + w1x * dU1;
+    float vw = VW[2] + w0 * dV0 + w1 * dV1, vwx = w0x * dV0 + w1x * dV1;
+    int k = y * GW + xs;
+    if (triMode == 2) { if (xs < sx0) sx0 = xs; if (xe > sx1) sx1 = xe; if (y < sy0) sy0 = y; if (y > sy1) sy1 = y; }
+    for (int x = xs; x <= xe; x++, k++, iw += iwx, uw += uwx, vw += vwx) {
+      float z = 1.0f / iw;
+      if (triMode == 2) { smask[k] = 1; continue; }
+      if (z >= zbuf[k]) continue;
+      if (triMode == 1) { gfx_px[k] = mix(gfx_px[k], fogged(flat, z), triAlpha); continue; }
+      uint32_t col = flat;
+      if (triMode == 3) col = shade_lit(colour, uw * z);
+      else if (t) {
+        int tx = (int)(uw * z * t->w), ty = (int)(vw * z * t->h);
+        if (tx < 0) tx = 0; if (ty < 0) ty = 0; if (tx >= t->w) tx = t->w - 1; if (ty >= t->h) ty = t->h - 1;
+        col = shade_c(t->px[ty * t->w + tx], shade);
+      }
+      zbuf[k] = z; gfx_px[k] = fogged(col, z);
+    }
   }
 }
 void gfx_quad(const Vec3 p[4], const Tex *t, uint32_t colour, float shade) {
@@ -279,10 +315,14 @@ void gfx_tri_lit(const Vec3 p[3], const float sh[3], uint32_t colour) {
   triMode = 0;
 }
 void gfx_quad_alpha(const Vec3 p[4], uint32_t colour, float alpha) { triMode = 1; triAlpha = alpha; gfx_quad(p, NULL, colour, 1); triMode = 0; }
-void gfx_shadow_begin(void) { memset(smask, 0, sizeof smask); }
+void gfx_shadow_begin(void) {                  // clear what the last shadow marked
+  if (sx1 >= 0) for (int y = sy0; y <= sy1; y++) memset(smask + y * GW + sx0, 0, (size_t)(sx1 - sx0 + 1));
+  sx0 = GW; sy0 = GH; sx1 = sy1 = -1;
+}
 void gfx_shadow_quad(const Vec3 p[4]) { triMode = 2; gfx_quad(p, NULL, 0, 1); triMode = 0; }
 void gfx_shadow_end(float k) {                  // a soft edge: blur the mask a little while darkening
-  for (int y = 1; y < GH - 1; y++) for (int x = 1; x < GW - 1; x++) {
+  int ya = sy0 - 1 < 1 ? 1 : sy0 - 1, yb = sy1 + 1 > GH - 2 ? GH - 2 : sy1 + 1, xa = sx0 - 1 < 1 ? 1 : sx0 - 1, xb = sx1 + 1 > GW - 2 ? GW - 2 : sx1 + 1;
+  for (int y = ya; y <= yb; y++) for (int x = xa; x <= xb; x++) {
     int i = y * GW + x, n = smask[i] * 4 + smask[i - 1] + smask[i + 1] + smask[i - GW] + smask[i + GW];
     if (n) gfx_px[i] = mix(gfx_px[i], 0x000000, k * n / 8.0f);
   }
@@ -339,21 +379,38 @@ void gfx_thick(int x0, int y0, int x1, int y1, int w, uint32_t c) {
   float dx = (float)(x1 - x0), dy = (float)(y1 - y0), l = sqrtf(dx * dx + dy * dy); int n = (int)l + 1;
   for (int i = 0; i <= n; i++) { int x = x0 + (int)(dx * i / n), y = y0 + (int)(dy * i / n); gfx_disc(x, y, w / 2, c); }
 }
-void gfx_metal_texture(const uint8_t *rgb, int w, int h) { metal = rgb; metalW = w; metalH = h; }
-void gfx_metal_panel(int x, int y, int w, int h, int r, int mask) {
+static void metal_draw(uint32_t *out, int w, int h, int r, int mask);
+static void metal_forget(void);
+void gfx_metal_texture(const uint8_t *rgb, int w, int h) { metal_forget(); metal = rgb; metalW = w; metalH = h; }
+static struct { int w, h, r, mask; uint32_t *px; } C[8]; static int nC;   // metal panels made so far
+void gfx_metal_panel(int x, int y, int w, int h, int r, int mask) {   // made once per size, then copied
   gfx_dim(x + 5, y + 6, w, h, 0.5f);                                          // its shadow
+  int k = 0; while (k < nC && !(C[k].w == w && C[k].h == h && C[k].r == r && C[k].mask == mask)) k++;
+  if (k == nC) {
+    if (nC == 8 || !(C[k].px = malloc(sizeof(uint32_t) * (size_t)(w * h)))) { k = -1; }
+    else { C[k].w = w; C[k].h = h; C[k].r = r; C[k].mask = mask; metal_draw(C[k].px, w, h, r, mask); nC++; }
+  }
+  static uint32_t one[GW * 64]; uint32_t *src = k >= 0 ? C[k].px : NULL;
+  if (!src) { if (w * h > GW * 64) return; metal_draw(one, w, h, r, mask); src = one; }
   for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {
+    int X = x + i, Y = y + j; uint32_t c = src[j * w + i];
+    if (c != 0xff000000u && X >= 0 && Y >= 0 && X < GW && Y < GH) gfx_px[Y * GW + X] = c;
+  }
+}
+static void metal_forget(void) { for (int k = 0; k < nC; k++) free(C[k].px); nC = 0; }
+static void metal_draw(uint32_t *out, int w, int h, int r, int mask) {   // 0xff000000 = outside its rounded corners
+  for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {
+    out[j * w + i] = 0xff000000u;
     int cx = -1, cy = -1;                                                      // inside a rounded corner?
     if (i < r && j < r && (mask & 1)) { cx = r; cy = r; } else if (i >= w - r && j < r && (mask & 2)) { cx = w - r - 1; cy = r; }
     else if (i >= w - r && j >= h - r && (mask & 4)) { cx = w - r - 1; cy = h - r - 1; } else if (i < r && j >= h - r && (mask & 8)) { cx = r; cy = h - r - 1; }
     if (cx >= 0 && (i - cx) * (i - cx) + (j - cy) * (j - cy) > r * r) continue;
-    int X = x + i, Y = y + j; if (X < 0 || Y < 0 || X >= GW || Y >= GH) continue;
     uint32_t col = 0xc8ccd0;
     if (metal) { const uint8_t *q = metal + 3 * (((j % metalH) * metalW) + (i % metalW)); col = (uint32_t)q[0] << 16 | q[1] << 8 | q[2]; }
     float k = 1.0f;                                                            // a little bevel: light top, dark bottom
     if (j < 2) k = 1.12f; else if (j >= h - 2) k = 0.7f; else if (i < 2 || i >= w - 2) k = 0.85f;
     int rr = (int)(((col >> 16) & 255) * k), gg = (int)(((col >> 8) & 255) * k), bb = (int)((col & 255) * k);
-    gfx_px[Y * GW + X] = (uint32_t)((rr > 255 ? 255 : rr) << 16 | (gg > 255 ? 255 : gg) << 8 | (bb > 255 ? 255 : bb));
+    out[j * w + i] = (uint32_t)((rr > 255 ? 255 : rr) << 16 | (gg > 255 ? 255 : gg) << 8 | (bb > 255 ? 255 : bb));
   }
 }
 void gfx_clip(int x, int y, int w, int h) {
