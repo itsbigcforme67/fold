@@ -30,9 +30,9 @@ L.append("rec build/rec")
 w(30)
 # ---- the level view: cells, folding, the camera
 cap("A: PLACE A CELL"); b("A", 20)                      # first cell
-cap("STICK: MOVE THE CURSOR"); st(1, 0, 10); cap("A: PLACE A CELL"); b("A", 18)        # second, beside it
-st(0, -1, 10); st(0, 1, 10)     # the cursor wanders
-cap("D-PAD: FOLD THE PLANE"); b("RIGHT", 30)                  # D-pad: fold the working plane down
+cap("D-PAD: MOVE THE CURSOR"); b("RIGHT", 10); cap("A: PLACE A CELL"); b("A", 18)        # second, beside it
+b("UP", 10); b("DOWN", 10)      # the cursor wanders
+cap("STICK: ROLL THE PLANE"); st(1, 0, 30)                  # left stick: roll the working plane over the edge
 b("A", 22)                      # third cell, hanging over the edge
 shot("cells"); w(45)
 cap("RIGHT STICK: ORBIT"); rs(0.7, 0, 30); rs(-0.7, 0, 45); rs(0, -0.6, 15); rs(0, 0.6, 15)   # right stick: orbit

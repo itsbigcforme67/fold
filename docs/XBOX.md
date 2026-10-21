@@ -42,7 +42,10 @@ disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the te
 
 ## Controls (Duke)
 
-Left stick, D-pad, A B X Y, Start, Back as on the PC; L and R are the triggers or White / Black; clicking the right
+Level view: the D-pad moves the cursor along the working plane; the left stick rolls the plane over the cursor cell's
+edge, round the shape, and the camera rolls with it (the new cell is seen face up, four rolls one way come back).
+Right stick looks round, Back + right stick zooms, L / R (the triggers, or White / Black) turn the view a quarter
+turn. A places a cell, B removes it, X opens the cell editor, Y the cell's settings, Start the menu, clicking the right
 stick shows the VMX window. Holding Back + Start shows the frame rate in the corner.
 
 ## Things found on the way

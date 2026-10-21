@@ -335,11 +335,11 @@ static void turn_view(int dir) {                // L / R: a quarter turn of the 
 }
 static void shape_frame(const Pad *p) {
   int d;
-  if (stick_rep(p->lx, p->ly, &d)) {     // move the cursor along the plane
+  if (dpad_rep(p, &d)) {                 // the D-pad moves the cursor along the plane
     int a[3]; plane_dir(PADDIR[d], a);
     for (int i = 0; i < 3; i++) co[i] += a[i];
   }
-  if (dpad_rep(p, &d)) fold_plane(PADDIR[d]);
+  if (stick_rep(p->lx, p->ly, &d)) fold_plane(PADDIR[d]);   // the left stick rolls the plane round the shape
   if (pressed(p, PAD_L)) turn_view(-1);
   if (pressed(p, PAD_R)) turn_view(1);
   if (p->held & PAD_BACK) { dist *= 1 + p->ry * 0.04f; if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20; }   // BACK + right stick: zoom
@@ -1015,8 +1015,8 @@ static void tab_row(int current) {            // along the top of the screen
   }
 }
 static void level_controls(void) {   // the metal panels in the corners, each with its live 3D control (icons3d.c)
-  gfx_metal_panel(0, 296, 150, 92, 14, 2 | 4); icons_stick(4, 298, 142, 88);     // the stick moves the cursor
-  gfx_metal_panel(0, 398, 138, 82, 14, 2); icons_dpad(4, 400, 130, 80);           // the D-pad turns the working plane
+  gfx_metal_panel(0, 296, 150, 92, 14, 2 | 4); icons_stick(4, 298, 142, 88);     // the stick rolls the working plane
+  gfx_metal_panel(0, 398, 138, 82, 14, 2); icons_dpad(4, 400, 130, 80);           // the D-pad moves the cursor
   gfx_metal_panel(GW - 128, 250, 128, 142, 14, 1 | 8); icons_buttons(GW - 124, 254, 120, 134);   // the face buttons
   gfx_metal_panel(GW - 168, 400, 168, 80, 14, 1); icons_camera(GW - 164, 402, 160, 78);         // the camera
 }

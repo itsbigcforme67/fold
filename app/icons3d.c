@@ -1,6 +1,6 @@
 // FOLD app: the level view's control pictures, in real 3D (the owner's idea): small models on the brushed-metal
-// panels, drawn every frame, that move and play up what a control does when it is used: the thumbstick tilts and the
-// cursor slides on its grid; the D-pad tips, the arrow curling round it that way pops and the planes turn; face buttons sink and glow;
+// panels, drawn every frame, that move and play up what a control does when it is used: the thumbstick tilts, the
+// arrow curling round it that way pops and the planes turn; the D-pad tips and the cursor slides on its grid; face buttons sink and glow;
 // the camera turns with the right stick. The stick, D-pad and button models are the Duke controller's parts from the
 // VMX film (assets/duke.mesh, made by tools/make_duke.py); until that file loads, simple stand-in shapes are drawn.
 #include "icons3d.h"
@@ -16,7 +16,7 @@ static const float LX = 0.38f, LY = -0.52f, LZ = 0.76f;   // light: up, to the s
 
 // smoothed control state, eased each frame towards the pad
 static float stX, stY, rsX, rsY, dpX, dpY, spin, spinV = 0.03f, planeRx, planeRz, goalRx, goalRz, press[4], curX, curY, pop[4];   // pop: D-pad up right down left
-static unsigned prevHeld; static int tt;
+static unsigned prevHeld; static int tt, prevStick = -1;
 
 void icons_update(const Pad *p) {
   tt++;
@@ -24,19 +24,21 @@ void icons_update(const Pad *p) {
   rsX += (p->rx - rsX) * 0.3f; rsY += (p->ry - rsY) * 0.3f;
   float dx = (p->held & PAD_RIGHT ? 1.f : 0.f) - (p->held & PAD_LEFT ? 1.f : 0.f), dy = (p->held & PAD_DOWN ? 1.f : 0.f) - (p->held & PAD_UP ? 1.f : 0.f);
   dpX += (dx - dpX) * 0.35f; dpY += (dy - dpY) * 0.35f;
-  unsigned now = p->held & ~prevHeld;           // D-pad presses pop their arrow and turn the planes
-  if (now & PAD_UP) { goalRx -= 90; pop[0] = 1; }
-  if (now & PAD_RIGHT) { goalRz += 90; pop[1] = 1; }
-  if (now & PAD_DOWN) { goalRx += 90; pop[2] = 1; }
-  if (now & PAD_LEFT) { goalRz -= 90; pop[3] = 1; }
+  // a flick of the left stick (it rolls the plane) pops that way's arrow and turns the planes
+  int sd = p->lx > 0.5f && p->lx >= (p->ly < 0 ? -p->ly : p->ly) ? 1 : p->lx < -0.5f && -p->lx >= (p->ly < 0 ? -p->ly : p->ly) ? 3
+         : p->ly < -0.5f ? 0 : p->ly > 0.5f ? 2 : -1;
+  if (sd >= 0 && sd != prevStick) {
+    if (sd == 0) goalRx -= 90; else if (sd == 1) goalRz += 90; else if (sd == 2) goalRx += 90; else goalRz -= 90;
+    pop[sd] = 1;
+  }
+  prevStick = sd;
   for (int k = 0; k < 4; k++) pop[k] *= 0.88f;
   spinV += ((p->rx != 0 ? p->rx * 0.15f : 0.03f) - spinV) * 0.05f;
   spin += spinV;
   planeRx += (goalRx - planeRx) * 0.18f; planeRz += (goalRz - planeRz) * 0.18f;
   const unsigned bits[4] = { PAD_Y, PAD_X, PAD_B, PAD_A };
   for (int k = 0; k < 4; k++) press[k] += ((p->held & bits[k] ? 1.f : 0.f) - press[k]) * 0.4f;
-  float tx = p->lx > 0.5f ? 1.f : p->lx < -0.5f ? -1.f : 0.f, ty = p->ly > 0.5f ? -1.f : p->ly < -0.5f ? 1.f : 0.f;
-  curX += (tx - curX) * 0.25f; curY += (ty - curY) * 0.25f;
+  curX += (dx - curX) * 0.25f; curY += (-dy - curY) * 0.25f;   // the D-pad slides the cursor on the grid
   prevHeld = p->held;
 }
 
@@ -206,30 +208,36 @@ static void thumbstick(Xf base, float tiltX, float tiltY, uint32_t cap, int whic
 }
 
 // ---- the four panels ----------------------------------------------------------------------------------------------
-static void draw_stick(int x, int y, int w, int h) {   // the left stick moves the cursor over the grid
-  scene(x, y, w, h, 15, 0.62f, 4.8f);
-  float bob = sinf(tt * 0.05f) * 0.03f;
-  Xf b = xf(v3f(-1.3f, 0, bob));
-  for (int k = 0; k < 4; k++) {                                         // yellow arrowheads round the base
-    float dx = k == 0 ? 1.f : k == 1 ? -1.f : 0.f, dy = k == 2 ? 1.f : k == 3 ? -1.f : 0.f;
-    float push = dx ? stX * dx : -stY * dy; if (push < 0) push = 0;
-    Xf a = rot(xf(v3f(-1.3f + dx * (1.0f + push * 0.25f), dy * (1.0f + push * 0.25f), 0.02f)), 2, k == 0 ? 0 : k == 1 ? 180 : k == 2 ? 90 : -90);
-    wedge(&a, 0.34f + push * 0.25f, 0.24f + push * 0.1f, 0.12f, brighter(YEL, push * 0.5f));
-  }
-  thumbstick(b, stX, -stY, INK, STICK_L);
-  Xf g = rot(xf(v3f(1.45f, 0.1f, 0.05f)), 0, 0);                        // the grid, and the cursor on it
-  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) box(&g, i * 0.52f, j * 0.52f, 0, 0.44f, 0.44f, 0.06f, 0x52c41a);
-  float cx = curX * 0.52f, cy = curY * 0.52f; const uint32_t CY = 0x22e0ea;
+// four arrows curling round a control (frame b, middle at height zc), one each way; q[] makes one swell
+static void curls(const Xf *b, float zc, const float *q) {
   for (int k = 0; k < 4; k++) {
-    float sx = k & 1 ? 1 : -1, sy = k & 2 ? 1 : -1;
-    box(&g, cx + sx * 0.25f, cy + sy * 0.18f, 0.08f, 0.05f, 0.16f, 0.06f, CY);
-    box(&g, cx + sx * 0.18f, cy + sy * 0.25f, 0.08f, 0.16f, 0.05f, 0.06f, CY);
+    float dx = k == 1 ? 1.f : k == 3 ? -1.f : 0.f, dy = k == 0 ? 1.f : k == 2 ? -1.f : 0.f;
+    Vec3 c = P(b, 0, 0, zc), e = sub3(eye, c); float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z);
+    Vec3 f0 = v3f(e.x / el, e.y / el, e.z / el), up = v3f(0, f0.z, -f0.y);   // towards the camera; screen up
+    const float tc = cosf(0.5f), ts = sinf(0.5f);                       // the ball's pole tipped up-left, to see them wrap
+    Vec3 tilt = v3f(-0.6f, 0.8f * up.y, 0.8f * up.z), f = v3f(f0.x * tc + tilt.x * ts, f0.y * tc + tilt.y * ts, f0.z * tc + tilt.z * ts);
+    Vec3 d0 = v3f(dx, dy * up.y, dy * up.z); float fd = d0.x * f.x + d0.y * f.y + d0.z * f.z;
+    Vec3 d = v3f(d0.x - f.x * fd, d0.y - f.y * fd, d0.z - f.z * fd); float dl = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+    d = v3f(d.x / dl, d.y / dl, d.z / dl);                              // that way on screen, square to the pole
+    curl(c, 1.0f + q[k] * 0.2f, f, d, 45 - q[k] * 8, 165 + q[k] * 20, 0.36f + q[k] * 0.12f, brighter(YEL, q[k] * 0.6f));
   }
+}
+static void draw_stick(int x, int y, int w, int h) {   // the left stick rolls the working plane round the shape
+  scene(x, y, w, h, 15, 0.72f, 4.8f);
+  float bob = sinf(tt * 0.05f) * 0.03f;
+  Xf b = xf(v3f(-1.2f, 0, bob));
+  thumbstick(b, stX, -stY, INK, STICK_L);
+  curls(&b, 0.45f, pop);
+  Xf p = rot(rot(xf(v3f(1.3f, 0, 0.35f)), 0, planeRx), 2, planeRz);    // the planes, turning with each flick
+  const float s = 0.55f;
+  quad(P(&p, -s, 0, -s), P(&p, s, 0, -s), P(&p, s, 0, s), P(&p, -s, 0, s), 0xe03030, 0xa02020);
+  quad(P(&p, 0, -s, -s), P(&p, 0, s, -s), P(&p, 0, s, s), P(&p, 0, -s, s), 0x3050e0, 0x2030a0);
+  quad(P(&p, -s, -s, 0), P(&p, s, -s, 0), P(&p, s, s, 0), P(&p, -s, s, 0), 0x52c41a, 0x3a8a14);
   done();
 }
-static void draw_dpad(int x, int y, int w, int h) {    // the D-pad turns the working plane
+static void draw_dpad(int x, int y, int w, int h) {    // the D-pad moves the cursor over the grid
   scene(x, y, w, h, 15, 0.72f, 4.8f);
-  Xf b = rot(rot(xf(v3f(-1.15f, 0, 0)), 2, -32), 0, 20);              // stood up, turned away to the left
+  Xf b = rot(rot(xf(v3f(-1.25f, 0, 0)), 2, -32), 0, 20);              // stood up, turned away to the left
   Xf d = rot(rot(b, 1, dpX * 16), 0, -dpY * 16);                        // tipped by a press
   if (!partsTried) load_parts();
   if (partsOk) { Xf dd = d; dd.t = P(&d, 0, 0, part_h(DPAD) * 0.062f / 2); part(&dd, DPAD, 0.062f, 0x2a2b2e, 0); }
@@ -238,22 +246,21 @@ static void draw_dpad(int x, int y, int w, int h) {    // the D-pad turns the wo
     box(&d, 0, 0, 0.13f, 1.12f, 0.36f, 0.14f, INK); box(&d, 0, 0, 0.13f, 0.36f, 1.12f, 0.14f, INK);
     cyl(&d, 0.14f, 0.2f, 0.22f, 0x2a2a2a, 0x3a3a3a);
   }
-  for (int k = 0; k < 4; k++) {                                         // four arrows curling round it, one each way
-    float dx = k == 1 ? 1.f : k == 3 ? -1.f : 0.f, dy = k == 0 ? 1.f : k == 2 ? -1.f : 0.f, q = pop[k];
-    Vec3 c = P(&b, 0, 0, 0.1f), e = sub3(eye, c); float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z);
-    Vec3 f0 = v3f(e.x / el, e.y / el, e.z / el), up = v3f(0, f0.z, -f0.y);   // towards the camera; screen up
-    const float tc = cosf(0.5f), ts = sinf(0.5f);                       // the ball's pole tipped up-left, to see them wrap
-    Vec3 tilt = v3f(-0.6f, 0.8f * up.y, 0.8f * up.z), f = v3f(f0.x * tc + tilt.x * ts, f0.y * tc + tilt.y * ts, f0.z * tc + tilt.z * ts);
-    Vec3 d0 = v3f(dx, dy * up.y, dy * up.z); float fd = d0.x * f.x + d0.y * f.y + d0.z * f.z;
-    Vec3 d = v3f(d0.x - f.x * fd, d0.y - f.y * fd, d0.z - f.z * fd); float dl = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
-    d = v3f(d.x / dl, d.y / dl, d.z / dl);                              // that way on screen, square to the pole
-    curl(c, 1.0f + q * 0.2f, f, d, 45 - q * 8, 165 + q * 20, 0.36f + q * 0.12f, brighter(YEL, q * 0.6f));
+  for (int k = 0; k < 4; k++) {                                         // a yellow arrowhead off each arm
+    float ax = k == 0 ? 1.f : k == 1 ? -1.f : 0.f, ay = k == 2 ? 1.f : k == 3 ? -1.f : 0.f;
+    float push = ax ? dpX * ax : -dpY * ay; if (push < 0) push = 0;
+    Xf a = b; a.t = P(&b, ax * (0.95f + push * 0.25f), ay * (0.95f + push * 0.25f), 0.05f);
+    a = rot(a, 2, k == 0 ? 0 : k == 1 ? 180 : k == 2 ? 90 : -90);
+    wedge(&a, 0.34f + push * 0.25f, 0.24f + push * 0.1f, 0.12f, brighter(YEL, push * 0.5f));
   }
-  Xf p = rot(rot(xf(v3f(1.3f, 0, 0.35f)), 0, planeRx), 2, planeRz);    // the planes, turning with each press
-  const float s = 0.55f;
-  quad(P(&p, -s, 0, -s), P(&p, s, 0, -s), P(&p, s, 0, s), P(&p, -s, 0, s), 0xe03030, 0xa02020);
-  quad(P(&p, 0, -s, -s), P(&p, 0, s, -s), P(&p, 0, s, s), P(&p, 0, -s, s), 0x3050e0, 0x2030a0);
-  quad(P(&p, -s, -s, 0), P(&p, s, -s, 0), P(&p, s, s, 0), P(&p, -s, s, 0), 0x52c41a, 0x3a8a14);
+  Xf g = xf(v3f(1.45f, 0.1f, 0.05f));                                   // the grid, and the cursor on it
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) box(&g, i * 0.52f, j * 0.52f, 0, 0.44f, 0.44f, 0.06f, 0x52c41a);
+  float cx = curX * 0.52f, cy = curY * 0.52f; const uint32_t CY = 0x22e0ea;
+  for (int k = 0; k < 4; k++) {
+    float sx = k & 1 ? 1 : -1, sy = k & 2 ? 1 : -1;
+    box(&g, cx + sx * 0.25f, cy + sy * 0.18f, 0.08f, 0.05f, 0.16f, 0.06f, CY);
+    box(&g, cx + sx * 0.18f, cy + sy * 0.25f, 0.08f, 0.16f, 0.05f, 0.06f, CY);
+  }
   done();
 }
 static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style: Y X B A
@@ -322,11 +329,11 @@ static void panel(int k, int x, int y, int w, int h, int active, int idleAnim, v
   cacheOk[k] = 1; cacheX[k] = x; cacheY[k] = y; cacheW[k] = w; cacheH[k] = h;
 }
 static int moving(float v) { return v > 0.01f || v < -0.01f; }
-void icons_stick(int x, int y, int w, int h) { panel(0, x, y, w, h, moving(stX) || moving(stY) || moving(curX) || moving(curY), 1, draw_stick); }
-void icons_dpad(int x, int y, int w, int h) {
-  int a = moving(dpX) || moving(dpY) || moving((planeRx - goalRx) * 0.02f) || moving((planeRz - goalRz) * 0.02f);
+void icons_stick(int x, int y, int w, int h) {
+  int a = moving(stX) || moving(stY) || moving((planeRx - goalRx) * 0.02f) || moving((planeRz - goalRz) * 0.02f);
   for (int k = 0; k < 4; k++) a |= moving(pop[k]);
-  panel(1, x, y, w, h, a, 0, draw_dpad);
+  panel(0, x, y, w, h, a, 1, draw_stick);
 }
+void icons_dpad(int x, int y, int w, int h) { panel(1, x, y, w, h, moving(dpX) || moving(dpY) || moving(curX) || moving(curY), 0, draw_dpad); }
 void icons_buttons(int x, int y, int w, int h) { panel(2, x, y, w, h, moving(press[0]) || moving(press[1]) || moving(press[2]) || moving(press[3]), 0, draw_buttons); }
 void icons_camera(int x, int y, int w, int h) { panel(3, x, y, w, h, moving(rsX) || moving(rsY), 1, draw_camera); }
