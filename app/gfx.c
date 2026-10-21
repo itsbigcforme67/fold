@@ -10,8 +10,6 @@ static Mat4 VP;
 static uint32_t fogC; static float fogS = 1e9f, fogE = 2e9f;
 static int vofsX, vofsY, clx0, cly0, clx1 = GW - 1, cly1 = GH - 1;
 static const uint8_t *metal; static int metalW, metalH;
-static uint8_t smask[GW * GH];
-static int sx0 = GW, sy0 = GH, sx1 = -1, sy1 = -1;   // where the shadow mask has anything
 static uint32_t mixw(uint32_t a, uint32_t b, uint32_t w) {   // a towards b by w / 256 (red and blue in one multiply)
   uint32_t rb = (((a & 0xFF00FF) * (256 - w) + (b & 0xFF00FF) * w) >> 8) & 0xFF00FF;
   uint32_t g = (((a & 0x00FF00) * (256 - w) + (b & 0x00FF00) * w) >> 8) & 0x00FF00;
@@ -212,7 +210,7 @@ static uint32_t shade_c(uint32_t c, float k) {
   int r = (int)(((c >> 16) & 255) * k), g = (int)(((c >> 8) & 255) * k), b = (int)((c & 255) * k);
   return (uint32_t)((r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b));
 }
-static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 2 shadow mask, 3 lit (u = shade)
+static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 3 lit (u = shade)
 static uint32_t shade_lit(uint32_t c, float k) { // up to 1 darkens; above it, a shine towards white
   if (k <= 1) return shade_c(c, k < 0 ? 0 : k);
   float w = k - 1 > 1 ? 1 : k - 1;
@@ -259,10 +257,8 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
     float uw = UW[2] + w0 * dU0 + w1 * dU1, uwx = w0x * dU0 + w1x * dU1;
     float vw = VW[2] + w0 * dV0 + w1 * dV1, vwx = w0x * dV0 + w1x * dV1;
     int k = y * GW + xs;
-    if (triMode == 2) { if (xs < sx0) sx0 = xs; if (xe > sx1) sx1 = xe; if (y < sy0) sy0 = y; if (y > sy1) sy1 = y; }
     for (int x = xs; x <= xe; x++, k++, iw += iwx, uw += uwx, vw += vwx) {
       float z = 1.0f / iw;
-      if (triMode == 2) { smask[k] = 1; continue; }
       if (z >= zbuf[k]) continue;
       if (triMode == 1) { gfx_px[k] = mix(gfx_px[k], fogged(flat, z), triAlpha); continue; }
       uint32_t col = flat;
@@ -315,18 +311,6 @@ void gfx_tri_lit(const Vec3 p[3], const float sh[3], uint32_t colour) {
   triMode = 0;
 }
 void gfx_quad_alpha(const Vec3 p[4], uint32_t colour, float alpha) { triMode = 1; triAlpha = alpha; gfx_quad(p, NULL, colour, 1); triMode = 0; }
-void gfx_shadow_begin(void) {                  // clear what the last shadow marked
-  if (sx1 >= 0) for (int y = sy0; y <= sy1; y++) memset(smask + y * GW + sx0, 0, (size_t)(sx1 - sx0 + 1));
-  sx0 = GW; sy0 = GH; sx1 = sy1 = -1;
-}
-void gfx_shadow_quad(const Vec3 p[4]) { triMode = 2; gfx_quad(p, NULL, 0, 1); triMode = 0; }
-void gfx_shadow_end(float k) {                  // a soft edge: blur the mask a little while darkening
-  int ya = sy0 - 1 < 1 ? 1 : sy0 - 1, yb = sy1 + 1 > GH - 2 ? GH - 2 : sy1 + 1, xa = sx0 - 1 < 1 ? 1 : sx0 - 1, xb = sx1 + 1 > GW - 2 ? GW - 2 : sx1 + 1;
-  for (int y = ya; y <= yb; y++) for (int x = xa; x <= xb; x++) {
-    int i = y * GW + x, n = smask[i] * 4 + smask[i - 1] + smask[i + 1] + smask[i - GW] + smask[i + GW];
-    if (n) gfx_px[i] = mix(gfx_px[i], 0x000000, k * n / 8.0f);
-  }
-}
 void gfx_fog(uint32_t c, float start, float end) { fogC = c; fogS = start; fogE = end; }
 void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick) {
   // a line with depth: drawn where it is in front of (or within a small bias of) what is already there

@@ -53,7 +53,7 @@ static int co[3], ce1[3] = { 1, 0, 0 }, ce2[3] = { 0, 1, 0 };
 // camera: orbit round the cursor
 // the camera rides on the working plane: Fn its normal towards you, Fr / Fu its screen right / up (whole axes; a
 // fold rolls the frame 90 degrees over the edge, so the new cell is seen just as the last one was). The view shown
-// eases towards the frame (vn / vr / vu); the right stick adds a look round (orbit, pitch), L / R turn the frame.
+// eases towards the frame (vn / vr / vu); the right stick adds a look round (orbit, pitch), L / R zoom.
 static int Fn[3] = { 0, 0, 1 }, Fr[3] = { 1, 0, 0 }, Fu[3] = { 0, 1, 0 };
 static Vec3 vn = { 0, 0, 1 }, vr = { 1, 0, 0 }, vu = { 0, 1, 0 };
 static float orbit = 0, pitch = 0.9f, dist = 5.5f;
@@ -352,11 +352,6 @@ static void flip_side(void) {                  // left stick click: round to the
   for (int i = 0; i < 3; i++) { Fn[i] = Fr[i]; Fr[i] = -n[i]; }   // half way: looking along the plane
   flipT = 8;
 }
-static void turn_view(int dir) {                // L / R: a quarter turn of the frame about the plane's normal
-  int r[3], u[3];
-  for (int i = 0; i < 3; i++) { r[i] = dir > 0 ? -Fu[i] : Fu[i]; u[i] = dir > 0 ? Fr[i] : -Fr[i]; }
-  memcpy(Fr, r, sizeof r); memcpy(Fu, u, sizeof u);
-}
 // the turn of side f's room in the cell editor that matches how it lies on screen in the level view: the editor
 // draws the room's +x to the right and +y down at turn 0, so take the turn whose screen directions fit best
 static int open_rot(int f) {
@@ -382,8 +377,8 @@ static void shape_frame(const Pad *p) {
     for (int i = 0; i < 3; i++) co[i] += a[i];
   }
   if (stick_rep(p->lx, p->ly, &d)) fold_plane(PADDIR[d]);   // the left stick rolls the plane round the shape
-  if (pressed(p, PAD_L)) turn_view(-1);
-  if (pressed(p, PAD_R)) turn_view(1);
+  if (p->held & PAD_L) { dist /= 1.04f; if (dist < 1.2f) dist = 1.2f; }   // L / R: zoom in / out (held)
+  if (p->held & PAD_R) { dist *= 1.04f; if (dist > 20) dist = 20; }
   if (pressed(p, PAD_LS) && !flipT) flip_side();
   if (p->held & PAD_BACK) { dist *= 1 + p->ry * 0.04f; if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20; }   // BACK + right stick: zoom
   else { orbit += p->rx * 0.06f; pitch += p->ry * 0.05f; }   // right stick: look round (up / down inverted, owner)
@@ -962,7 +957,7 @@ static float ground_z(void) {
   for (int i = 0; i < L.nsq; i++) { const FoldSquare *q = &L.sq[i]; for (int k = 0; k < 4; k++) { float c = q->o[2] + ((k == 1 || k == 2) ? q->u[2] : 0) + (k >= 2 ? q->v[2] : 0); if (c < z) z = c; } }
   return z - 0.02f;
 }
-static void draw_ground(void) {               // a soft grid fading into the distance, and the shape's shadow on it
+static void draw_ground(void) {               // a soft grid fading into the distance (no shadows: owner)
   float zg = ground_z(); int cx = (int)floorf(look.x), cy = (int)floorf(look.y);
   for (int a = -8; a <= 8; a++) for (int b = -8; b < 8; b++) {   // cell by cell, fading with distance from the cursor
     float d = sqrtf((float)(a * a + (b + 0.5f) * (b + 0.5f))) / 8.0f; if (d >= 1) continue;
@@ -973,18 +968,6 @@ static void draw_ground(void) {               // a soft grid fading into the dis
     c = ((int)(0x10 + (major ? 0x16 : 0x0a) * k) << 16) | ((int)(0x18 + (major ? 0x2a : 0x16) * k) << 8) | (int)(0x10 + (major ? 0x12 : 0x08) * k);
     gfx_line3(v3f((float)(cx + b), (float)(cy + a), zg), v3f((float)(cx + b + 1), (float)(cy + a), zg), c, 1);
   }
-  const float lx = 0.38f, ly = 0.52f, lz = 0.76f;   // the same light as the shading
-  gfx_shadow_begin();
-  for (int i = 0; i < L.nsq; i++) {
-    const FoldSquare *q = &L.sq[i]; Vec3 P[4];
-    for (int k = 0; k < 4; k++) {
-      float x = q->o[0] + ((k == 1 || k == 2) ? q->u[0] : 0) + (k >= 2 ? q->v[0] : 0), y = q->o[1] + ((k == 1 || k == 2) ? q->u[1] : 0) + (k >= 2 ? q->v[1] : 0);
-      float z = q->o[2] + ((k == 1 || k == 2) ? q->u[2] : 0) + (k >= 2 ? q->v[2] : 0), t = (z - zg) / lz;
-      P[k] = v3f(x - lx * t, y - ly * t, zg);
-    }
-    gfx_shadow_quad(P);
-  }
-  gfx_shadow_end(0.55f);
 }
 static void draw_shape(void) {
   gfx_zclear(); tex_init(); gfx_camera(VPm);   // (the icons set their own cameras after this)

@@ -42,8 +42,7 @@ cap("STICK: ROLL THE PLANE"); st(1, 0, 30)                  # left stick: roll t
 b("A", 22)                      # third cell, hanging over the edge
 shot("cells"); w(45)
 cap("RIGHT STICK: ORBIT"); rs(0.7, 0, 30); rs(-0.7, 0, 45); rs(0, -0.6, 15); rs(0, 0.6, 15)   # right stick: orbit
-cap("L / R: TURN THE VIEW"); b("L", 25); b("R", 25)          # L / R: quarter turns
-cap("BLACK / WHITE: ZOOM"); L.append("hold BLACK 30"); w(10); L.append("hold WHITE 30"); w(10)   # Black / White: zoom in / out
+cap("L / R: ZOOM IN / OUT"); L.append("hold L 30"); w(10); L.append("hold R 30"); w(10)
 shot("camera"); w(45)
 cap("X: CELL SETTINGS"); b("X", 25)                      # cell settings
 b("RIGHT", 18); b("RIGHT", 18); b("DOWN", 15); b("UP", 12); b("LEFT", 14); b("LEFT", 20)

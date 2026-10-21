@@ -45,7 +45,7 @@ disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the te
 Level view: the D-pad moves the cursor along the working plane; the left stick rolls the plane over the cursor cell's
 edge, round the shape, and the camera rolls with it (the new cell is seen face up, four rolls one way come back).
 White / Black raise the cursor a layer towards you / drop it one away. The right stick orbits freely, over the top and
-underneath (up / down inverted); Back + right stick zooms; the triggers (L / R) turn the view a quarter turn; clicking
+underneath (up / down inverted); the triggers (L / R) zoom in / out while held (Back + right stick too); clicking
 the left stick swings round to the other side of the cell. A and B work on the side you are looking at: A places a
 cell, or a room on an empty side (the checkerboard); B clears a back room to nothing, or removes the cell (from its
 front or an empty back). Y opens the side's room in the cell editor (an empty side: "A adds one"), X the cell's
@@ -71,8 +71,8 @@ On the PC: keys as before, plus - / = zoom, G the left stick click; a modern pad
   unreliable: `app/padscript.c` avoids both. An access violation writing to 0x74696177 ("wait") was the clue.
 - Frame time (PC, level view, `bench` in the headless runner): 6.25 ms -> 1.86 ms after caching the background
   gradient and the metal panels, integer colour mixing, a span rasterizer (stepped edge functions, one divide a
-  pixel), the control icons redrawn only while used (or every other frame for the two with idle animation), and the
-  shadow blur limited to where the shadow is.
+  pixel), the control icons redrawn only while used (or every other frame for the two with idle animation). (The
+  shape's shadow on the ground is gone since: the owner didn't want it.)
 - xemu's speed is not the console's: real frame rates need the hardware.
 - Saving crashed the real Xbox: app_save had a 77 KB local copy of the level, and nxdk gives the main thread a 64 KB
   stack (the PC gives 8 MB). It is static now and the XBE asks for a 256 KB stack (`-stack:0x40000`). Checked in xemu
