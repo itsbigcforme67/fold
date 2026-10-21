@@ -66,7 +66,7 @@ static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAY
 #define NITEMS 20
 // settings / menu
 static int propFace, propRot;   // the side the cell settings' layout tools work on, and its turn on screen
-static int prow, mrow, fileIx, vmxWin = 0, propSq, propsBack = M_SHAPE, trow, tcell, wrow, wfield;
+static int prow, mrow, fileIx, vmxWin = 0, propSq, propsBack = M_SHAPE, trow, tcell;
 // playtest
 static FoldLevel PL; static FoldGame G; static int popT, wonT, holdB, bannerT, bannerSq = -1; static const char *popWord;
 static int kpOn, kpCell, kpSel, kpMsgT; static char kpBuf[8]; static const char *kpMsg;   // the keypad in play
@@ -817,47 +817,158 @@ static void tile_frame(const Pad *p) {
   if (pressed(p, PAD_B) || pressed(p, PAD_X)) mode = M_ROOM;
 }
 
-// ---- wiring: the level-wide input and the logic pieces ------------------------------------------------------------
+// ---- wiring: the logic as a picture (owner: physical wires and gates) --------------------------------------------
+// Every thing that sends a signal is a node on the left (tiles, timers, "all targets filled"), the logic pieces are
+// gates in the middle, laid out by what feeds them, and what signals work is on the right (gates, teleporters, one-ways,
+// lights, signs, cells with a move). A wire runs from an output to each input on the same signal; the numbers stay
+// hidden: picking up an output (A) and putting it down on an input (A) sets them.
 static const char *OPNAMES[] = { "AND", "OR", "XOR", "NOT", "LATCH", "COUNT", "DELAY", "SHIFT" };
 #define NOPS 8
-// rows: 0 all targets; 1..T timers; T+1 add a timer; then the logic pieces; last: add a piece
-static void wire_frame(const Pad *p) {
-  int d, T = L.ntimer, nr = 3 + T + L.nlogic, addT = T + 1, firstL = T + 2, addL = nr - 1;
-  if (wrow >= nr) wrow = nr - 1;
-  if (pressed(p, PAD_L)) wfield = wfield > 0 ? wfield - 1 : 0;
-  if (pressed(p, PAD_R)) wfield = wfield < 6 ? wfield + 1 : 6;
-  if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
-    int sd = PADDIR[d];
-    if (sd == 0) wrow = (wrow + nr - 1) % nr; else if (sd == 2) wrow = (wrow + 1) % nr;
-    else {
-      int st = sd == 1 ? 1 : -1;
-      if (wrow == 0) L.allSig = sig_cycle(L.allSig, st, 1);
-      else if (wrow <= T) {                      // a timer: fields 0 signal, 1 kind, 2 n
-        FoldTimer *q = &L.timer[wrow - 1];
-        if (wfield == 0) q->sig = (uint8_t)sig_cycle(q->sig, st, 0);
-        else if (wfield == 1) q->kind ^= 1;
-        else { int n = q->n + st; q->n = (uint8_t)(n < 1 ? 1 : n > 255 ? 255 : n); }
-      } else if (wrow >= firstL && wrow < addL) {   // a piece: 0 out, 1 op, 2 count / delay, 3..6 inputs
-        FoldLogic *q = &L.logic[wrow - firstL];
-        if (wfield == 0) q->out = (uint8_t)sig_cycle(q->out, st, 0);
-        else if (wfield == 1) q->op = (uint8_t)((q->op + st + NOPS) % NOPS);
-        else if (wfield == 2) { int mx = q->op == FL_DELAY || q->op == FL_SHIFT ? 8 : 99, n = q->count + st; q->count = (uint8_t)(n < 1 ? 1 : n > mx ? mx : n); }
-        else q->in[wfield - 3] = (uint8_t)sig_cycle(q->in[wfield - 3], st, 1);
-      }
+enum { NK_ALL, NK_TIMER, NK_SRC, NK_LOGIC, NK_SINK, NK_CELL };
+typedef struct { int kind, ref, x, y, w, h; } WNode;
+static WNode wn[200]; static int nwn, wCols;   // wCols: the number of columns (the last: what is worked)
+static int wcur, wport, wHold = -1, wAdd = -1, wScX, wScY;   // cursor node / port (-1 its output, 0.. inputs); the wire carried
+static int lop_arity(int op) { return op == FL_NOT || op == FL_COUNT || op == FL_DELAY ? 1 : op == FL_LATCH || op == FL_SHIFT ? 2 : 0; }   // 0: 2..4
+static int node_out(const WNode *n) {           // the signal it sends (-1: no output)
+  switch (n->kind) { case NK_ALL: return L.allSig; case NK_TIMER: return L.timer[n->ref].sig; case NK_SRC: return L.btn[n->ref];
+                     case NK_LOGIC: return L.logic[n->ref].out; }
+  return -1;
+}
+static int node_nin(const WNode *n) {
+  if (n->kind == NK_SINK || n->kind == NK_CELL) return 1;
+  if (n->kind != NK_LOGIC) return 0;
+  const FoldLogic *q = &L.logic[n->ref]; int a = lop_arity(q->op);
+  if (a) return a;
+  int used = 0; for (int i = 0; i < 4; i++) if (q->in[i]) used = i + 1;
+  return used < 2 ? 2 : used < 4 ? used + 1 : 4;   // an empty input to wire into, up to 4
+}
+static int node_in(const WNode *n, int i) {
+  switch (n->kind) { case NK_SINK: return L.drv[n->ref]; case NK_CELL: return trig[n->ref]; case NK_LOGIC: return L.logic[n->ref].in[i]; }
+  return 0;
+}
+static void set_out(const WNode *n, int s) {
+  switch (n->kind) { case NK_ALL: L.allSig = s; break; case NK_TIMER: L.timer[n->ref].sig = (uint8_t)s; break;
+                     case NK_SRC: L.btn[n->ref] = (uint8_t)s; break; case NK_LOGIC: L.logic[n->ref].out = (uint8_t)s; break; }
+}
+static void set_in(const WNode *n, int i, int s) {
+  if (n->kind == NK_SINK) L.drv[n->ref] = (uint8_t)s;
+  else if (n->kind == NK_CELL) trig[n->ref] = s;
+  else if (n->kind == NK_LOGIC) {
+    FoldLogic *q = &L.logic[n->ref]; int a = lop_arity(q->op);
+    q->in[i] = (uint8_t)s;
+    if (!a && !s) { for (int k = i; k < 3; k++) q->in[k] = q->in[k + 1]; q->in[3] = 0; }   // close the gap
+    int used = 0; for (int k = 0; k < 4; k++) if (q->in[k]) used = k + 1;
+    q->n = (uint8_t)(a ? a : used);
+  }
+}
+static const char *src_kind(int c) {
+  return L.kind[c] == FK_PLATE ? "PLATE" : L.kind[c] == FK_SENSOR ? "SENSOR" : L.kind[c] == FK_KEY ? "KEY" : L.kind[c] == FK_LIGHT ? "LIGHT" :
+         L.kind[c] == FK_SIGN ? "SIGN" : L.kind[c] == FK_KEYPAD ? "KEYPAD" : L.kind[c] == FK_GATE ? (L.aux[c] & 0x40 ? "WALL GATE" : "GATE") :
+         L.kind[c] == FK_TELE ? "TELEPORTER" : L.kind[c] == FK_ONEWAY ? "ONE-WAY" : L.target[c] ? "TARGET" : "BUTTON";
+}
+static void where(int c, char *b, int n) {      // "KITCHEN" or "CELL 2", and B for a back side
+  int i = c / NN / 2, back = (c / NN) & 1;
+  if (L.sqname[i][0]) snprintf(b, (size_t)n, "%s%s", L.sqname[i], back ? " BACK" : ""); else snprintf(b, (size_t)n, "CELL %d%s", i, back ? " BACK" : "");
+}
+static void wire_build(void) {                  // the nodes and where they go (columns by what feeds what)
+  nwn = 0;
+  wn[nwn++] = (WNode){ NK_ALL, 0, 0, 0, 0, 0 };
+  for (int k = 0; k < L.ntimer && nwn < 200; k++) wn[nwn++] = (WNode){ NK_TIMER, k, 0, 0, 0, 0 };
+  for (int c = 0; c < 2 * L.nsq * NN && nwn < 200; c++)
+    if (!L.wall[c] && (sides[c / NN >> 1] >> ((c / NN) & 1) & 1) && sends_ok(c) && (L.btn[c] || !L.target[c])) wn[nwn++] = (WNode){ NK_SRC, c, 0, 0, 0, 0 };
+  for (int k = 0; k < L.nlogic && nwn < 200; k++) wn[nwn++] = (WNode){ NK_LOGIC, k, 0, 0, 0, 0 };
+  for (int c = 0; c < 2 * L.nsq * NN && nwn < 200; c++)
+    if (!L.wall[c] && (sides[c / NN >> 1] >> ((c / NN) & 1) & 1) && worked_ok(c)) wn[nwn++] = (WNode){ NK_SINK, c, 0, 0, 0, 0 };
+  for (int i = 0; i < L.nsq && nwn < 200; i++) if (func[i].kind) wn[nwn++] = (WNode){ NK_CELL, i, 0, 0, 0, 0 };
+  int sd[FOLD_MAXSIG], depth[200], maxd = 0;    // a signal's column: its senders' furthest
+  for (int s2 = 0; s2 < FOLD_MAXSIG; s2++) sd[s2] = 0;
+  for (int pass = 0; pass < 8; pass++)
+    for (int k = 0; k < L.nlogic; k++) {
+      const FoldLogic *q = &L.logic[k]; int d = 0;
+      for (int i = 0; i < 4; i++) if (q->in[i] && sd[q->in[i]] > d) d = sd[q->in[i]];
+      int span = q->op == FL_SHIFT ? q->count : 1;
+      for (int i = 0; i < span; i++) if (q->out + i < FOLD_MAXSIG && sd[q->out + i] < d + 1) sd[q->out + i] = d + 1 > 8 ? 8 : d + 1;
     }
+  for (int k = 0; k < nwn; k++) {
+    WNode *n = &wn[k];
+    if (n->kind == NK_LOGIC) { const FoldLogic *q = &L.logic[n->ref]; int d = 0; for (int i = 0; i < 4; i++) if (q->in[i] && sd[q->in[i]] > d) d = sd[q->in[i]]; depth[k] = d + 1; }
+    else depth[k] = n->kind == NK_SINK || n->kind == NK_CELL ? -1 : 0;
+    if (depth[k] > maxd) maxd = depth[k];
   }
-  if (pressed(p, PAD_A) && wrow == addT && L.ntimer < FOLD_MAXTIMER) {      // a new step limit, sending a fresh signal
-    FoldTimer *q = &L.timer[L.ntimer]; q->kind = FT_MOVES; q->n = 20; q->sig = (uint8_t)next_signal(); L.ntimer++; wrow = L.ntimer; wfield = 2;
+  int colY[12]; for (int k = 0; k < 12; k++) colY[k] = 0;
+  wCols = maxd + 2;
+  for (int k = 0; k < nwn; k++) {
+    WNode *n = &wn[k]; int d = depth[k] < 0 ? maxd + 1 : depth[k];
+    n->w = 128; n->h = 30 + (node_nin(n) > 1 ? (node_nin(n) - 1) * 14 : 0);
+    n->x = 18 + d * 170; n->y = colY[d]; colY[d] += n->h + 12;
   }
-  if (pressed(p, PAD_A) && wrow == addL && L.nlogic < FOLD_MAXLOGIC) {      // a new AND, sending a fresh signal
-    FoldLogic *q = &L.logic[L.nlogic]; memset(q, 0, sizeof *q);
-    q->op = FL_AND; q->count = 2; q->n = 4; q->out = (uint8_t)next_signal(); L.nlogic++; wrow = firstL + L.nlogic - 1; wfield = 3;
+}
+static void port_xy(const WNode *n, int port, int *x, int *y) {   // on screen (scrolled)
+  *x = n->x + (port < 0 ? n->w : 0) - wScX; *y = n->y + 22 + (port < 0 ? 0 : port * 14) - wScY + 70;
+}
+static void wire_frame(const Pad *p) {
+  int d;
+  wire_build();
+  if (wcur >= nwn) wcur = 0;
+  if (wAdd >= 0) {                             // the add list: gates, then timers
+    if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) { int sd = PADDIR[d]; if (sd == 0) wAdd = (wAdd + NOPS + 1) % (NOPS + 2); else if (sd == 2) wAdd = (wAdd + 1) % (NOPS + 2); }
+    if (pressed(p, PAD_A)) {
+      if (wAdd < NOPS && L.nlogic < FOLD_MAXLOGIC) {
+        FoldLogic *q = &L.logic[L.nlogic]; memset(q, 0, sizeof *q); q->op = (uint8_t)wAdd; q->count = wAdd == FL_SHIFT ? 4 : 2; q->n = (uint8_t)lop_arity(q->op);
+        q->out = (uint8_t)next_signal(); L.nlogic++; say("A GATE: WIRE INTO IT");
+      } else if (wAdd >= NOPS && L.ntimer < FOLD_MAXTIMER) {
+        FoldTimer *q = &L.timer[L.ntimer]; q->kind = wAdd == NOPS ? FT_TICK : FT_MOVES; q->n = wAdd == NOPS ? 2 : 20; q->sig = (uint8_t)next_signal(); L.ntimer++; say("A TIMER");
+      }
+      wAdd = -1;
+    }
+    if (pressed(p, PAD_B) || pressed(p, PAD_Y)) wAdd = -1;
+    return;
   }
-  if (pressed(p, PAD_X)) {                                                  // delete a timer / piece
-    if (wrow >= 1 && wrow <= T) { memmove(&L.timer[wrow - 1], &L.timer[wrow], sizeof(FoldTimer) * (L.ntimer - wrow)); L.ntimer--; }
-    else if (wrow >= firstL && wrow < addL) { int k = wrow - firstL; memmove(&L.logic[k], &L.logic[k + 1], sizeof(FoldLogic) * (L.nlogic - k - 1)); L.nlogic--; }
+  WNode *n = &wn[wcur];
+  if (wport >= node_nin(n) || (wport < 0 && node_out(n) < 0)) wport = node_out(n) >= 0 ? -1 : 0;
+  if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {   // to the nearest port that way
+    int sd = PADDIR[d], cx, cy, best = -1, bp = 0; float bs = 1e9f;
+    port_xy(n, wport, &cx, &cy);
+    for (int k = 0; k < nwn; k++) for (int pp = -1; pp < node_nin(&wn[k]); pp++) {
+      if (pp < 0 && (node_out(&wn[k]) < 0 || wHold > 0)) continue;   // carrying a wire: only inputs
+      if (k == wcur && pp == wport) continue;
+      int x, y; port_xy(&wn[k], pp, &x, &y);
+      float dx = (float)(x - cx), dy = (float)(y - cy), along = sd == 0 ? -dy : sd == 1 ? dx : sd == 2 ? dy : -dx, across = sd == 0 || sd == 2 ? fabsf(dx) : fabsf(dy);
+      if (along < 3) continue;
+      float sc = along + 2.5f * across;
+      if (sc < bs) { bs = sc; best = k; bp = pp; }
+    }
+    if (best >= 0) { wcur = best; wport = bp; n = &wn[wcur]; }
   }
-  if (pressed(p, PAD_B) || pressed(p, PAD_START)) mode = M_SHAPE;
+  if (pressed(p, PAD_A)) {
+    if (wport < 0) {                           // pick up this output's wire (a new signal if it has none)
+      int s2 = node_out(n); if (!s2) { s2 = next_signal(); set_out(n, s2); }
+      wHold = s2;
+    } else if (wHold > 0) { set_in(n, wport, wHold); wHold = -1; say("WIRED"); }
+    else if (node_in(n, wport)) { wHold = node_in(n, wport); set_in(n, wport, 0); }   // pick the wire's end up again
+  }
+  if (pressed(p, PAD_X) && wHold < 0) {
+    if (wport >= 0 && node_in(n, wport)) { set_in(n, wport, 0); say("WIRE CUT"); }
+    else if (wport < 0 && n->kind == NK_LOGIC) { int k = n->ref; memmove(&L.logic[k], &L.logic[k + 1], sizeof(FoldLogic) * (size_t)(L.nlogic - k - 1)); L.nlogic--; say("GATE REMOVED"); wcur = 0; }
+    else if (wport < 0 && n->kind == NK_TIMER) { int k = n->ref; memmove(&L.timer[k], &L.timer[k + 1], sizeof(FoldTimer) * (size_t)(L.ntimer - k - 1)); L.ntimer--; say("TIMER REMOVED"); wcur = 0; }
+  }
+  if (n->kind == NK_LOGIC && (pressed(p, PAD_L) || pressed(p, PAD_R))) {   // L / R: the gate's kind
+    FoldLogic *q = &L.logic[n->ref]; q->op = (uint8_t)((q->op + (pressed(p, PAD_R) ? 1 : NOPS - 1)) % NOPS);
+    int a = lop_arity(q->op); if (a) { q->n = (uint8_t)a; for (int i = a; i < 4; i++) q->in[i] = 0; }
+    if ((q->op == FL_DELAY || q->op == FL_SHIFT) && q->count > 8) q->count = 8;
+  }
+  if (n->kind == NK_TIMER && (pressed(p, PAD_L) || pressed(p, PAD_R))) L.timer[n->ref].kind ^= 1;
+  if (rstick_rep(p->rx, p->ry, &d)) {           // the right stick: its number (a counter's, a delay's, a register's, a timer's)
+    int sd = PADDIR[d], st = sd == 1 || sd == 0 ? 1 : -1;
+    if (n->kind == NK_LOGIC) { FoldLogic *q = &L.logic[n->ref]; int mx = q->op == FL_COUNT ? 99 : 8, c2 = q->count + st; q->count = (uint8_t)(c2 < 1 ? 1 : c2 > mx ? mx : c2); }
+    if (n->kind == NK_TIMER) { FoldTimer *q = &L.timer[n->ref]; int c2 = q->n + st; q->n = (uint8_t)(c2 < 1 ? 1 : c2 > 255 ? 255 : c2); }
+  }
+  if (pressed(p, PAD_Y)) wAdd = 0;
+  if (pressed(p, PAD_B)) { if (wHold > 0) wHold = -1; else mode = M_SHAPE; }
+  if (pressed(p, PAD_START)) { wHold = -1; mode = M_SHAPE; }
+  int x, y; port_xy(n, wport, &x, &y);          // keep the cursor in view
+  if (x < 60) wScX -= 60 - x; if (x > GW - 60) wScX += x - (GW - 60); if (y < 110) wScY -= 110 - y; if (y > GH - 70) wScY += y - (GH - 70);
+  if (wScX < 0) wScX = 0; if (wScY < 0) wScY = 0;
 }
 
 // ---- menu and playtest -------------------------------------------------------------------------------------------
@@ -883,7 +994,7 @@ static void menu_frame(const Pad *p) {
     switch (mrow) {
       case 0: start_play(); return;
       case 1: vmxWin ^= 1; break;
-      case 2: wrow = 0; wfield = 0; mode = M_WIRE; return;
+      case 2: wcur = 0; wport = -1; wHold = -1; wAdd = -1; mode = M_WIRE; return;
       case 3:
         if (!path[0]) { for (int k = 1; k < 1000; k++) { snprintf(path, sizeof path, "%s/user-%03d.fold", levelsDir, k); FILE *f = fopen(path, "r"); if (!f) break; fclose(f); } }
         say(app_save(path) ? "SAVED" : "COULD NOT SAVE"); nfiles = 0; break;
@@ -944,7 +1055,7 @@ static void play_frame(const Pad *p) {
 void app_init(const char *dir) { snprintf(levelsDir, sizeof levelsDir, "%s", dir); new_level(); }
 int app_quit(void) { return quit; }
 int app_state(char *b, int n) {                // a line of the editor's state, for comparing runs (tests)
-  return snprintf(b, (size_t)n, "m%d r%d,%d,%d,%d p%d w%d,%d i%d c%d s%d l%d,%d", mode, rx, ry, rf, rrot, mrow, wrow, wfield, item, L.nsq, L.player, L.nlogic, L.logic[0].op);
+  return snprintf(b, (size_t)n, "m%d r%d,%d,%d,%d p%d w%d,%d i%d c%d s%d l%d,%d", mode, rx, ry, rf, rrot, mrow, wcur, wport, item, L.nsq, L.player, L.nlogic, L.logic[0].op);
 }
 void app_frame(const Pad *p) {
   t++; if (msgT) msgT--;
@@ -1521,36 +1632,65 @@ void app_draw(void) {
     const char *hh[] = { "DPAD", "PICK / CHANGE", "B", "DONE" }; hints(hh, 2);
   }
   if (mode == M_WIRE) {
-    int T = L.ntimer, addT = T + 1, firstL = T + 2, addL = 3 + T + L.nlogic - 1, y = 106;
-    gfx_panel(30, 52, 580, 390, "WIRING", C_HI);
-    char r[96];
-    if (L.allSig) snprintf(r, sizeof r, "ALL TARGETS FILLED  SENDS %d", L.allSig); else snprintf(r, sizeof r, "ALL TARGETS FILLED  SENDS NONE");
-    row(56, y, 540, wrow == 0, r); y += 30;
-    gfx_text5(50, y - 6, 1, C_DIM, "TIMERS"); y += 12;
-    for (int k = 0; k < T; k++, y += 22) {
-      const FoldTimer *q = &L.timer[k]; int sel = wrow == k + 1, x = 70; char fld[3][24];
-      snprintf(fld[0], 24, "%d =", q->sig); snprintf(fld[1], 24, "%s", q->kind == FT_TICK ? "EVERY" : "AFTER"); snprintf(fld[2], 24, "%d MOVES", q->n);
-      row(56, y, 540, sel, "");
-      for (int f2 = 0; f2 < 3; f2++) { gfx_text5(x, y, 1, sel && f2 == wfield ? 0xffe070 : sel ? 0xe8ffd8 : C_TEXT, fld[f2]); x += gfx_text5_w(1, fld[f2]) + 14; }
-    }
-    row(56, y, 540, wrow == addT, "+ ADD A TIMER / STEP LIMIT"); y += 30;
-    gfx_text5(50, y - 6, 1, C_DIM, "LOGIC"); y += 12;
-    for (int k = 0; k < L.nlogic && y < 400; k++, y += 22) {
-      const FoldLogic *q = &L.logic[k]; int x = 70, sel = wrow == firstL + k;
-      char fld[7][16];
-      if (q->op == FL_SHIFT && q->count > 1) snprintf(fld[0], 16, "%d-%d =", q->out, q->out + q->count - 1); else snprintf(fld[0], 16, "%d =", q->out);
-      snprintf(fld[1], 16, "%s", OPNAMES[q->op]);
-      if (q->op == FL_COUNT) snprintf(fld[2], 16, "%d OF", q->count); else if (q->op == FL_DELAY) snprintf(fld[2], 16, "%d BY", q->count);
-      else if (q->op == FL_SHIFT) snprintf(fld[2], 16, "%d LONG", q->count); else snprintf(fld[2], 16, " ");
-      for (int i2 = 0; i2 < 4; i2++) {           // a shift register's inputs: D the data, C the clock
-        const char *pre = q->op == FL_SHIFT ? (i2 == 0 ? "D " : i2 == 1 ? "C " : "") : "";
-        if (q->in[i2]) snprintf(fld[3 + i2], 16, "%s%d", pre, q->in[i2]); else snprintf(fld[3 + i2], 16, "%s-", pre);
+    static const uint32_t WCOL[8] = { 0x58d838, 0xf2e01c, 0x4ab8ff, 0xff7a4a, 0xd070ff, 0x30e0c8, 0xff5a8a, 0xb0d030 };
+    gfx_rect(0, 36, GW, GH - 66, 0x08100a);                  // a dark blueprint
+    for (int gx = -(wScX % 20); gx < GW; gx += 20) gfx_rect(gx, 36, 1, GH - 66, 0x101c12);
+    for (int gy = 36 - (wScY % 20); gy < GH - 30; gy += 20) if (gy >= 36) gfx_rect(0, gy, GW, 1, 0x101c12);
+    for (int k = 0; k < nwn; k++) for (int i = 0; i < node_nin(&wn[k]); i++) {   // the wires: from each sender to each input
+      int s2 = node_in(&wn[k], i); if (!s2) continue;
+      int x2, y2; port_xy(&wn[k], i, &x2, &y2);
+      for (int j = 0; j < nwn; j++) {
+        int o = node_out(&wn[j]), stage = -1;
+        if (o == s2) stage = 0;
+        else if (wn[j].kind == NK_LOGIC && L.logic[wn[j].ref].op == FL_SHIFT && s2 > o && s2 < o + L.logic[wn[j].ref].count) stage = s2 - o;
+        if (stage < 0) continue;
+        int x1, y1; port_xy(&wn[j], -1, &x1, &y1); y1 += stage * 4;
+        uint32_t c = WCOL[s2 % 8]; int mx = x2 > x1 + 24 ? (x1 + x2) / 2 - 10 + (s2 % 6) * 4 : x1 + 10 + (s2 % 4) * 3;   // staggered by signal
+        if (x2 > x1 + 24) { gfx_thick(x1, y1, mx, y1, 2, c); gfx_thick(mx, y1, mx, y2, 2, c); gfx_thick(mx, y2, x2, y2, 2, c); }
+        else { int yb = (y1 > y2 ? y1 : y2) + 30; gfx_thick(x1, y1, mx, y1, 2, c); gfx_thick(mx, y1, mx, yb, 2, c); gfx_thick(mx, yb, x2 - 14, yb, 2, c); gfx_thick(x2 - 14, yb, x2 - 14, y2, 2, c); gfx_thick(x2 - 14, y2, x2, y2, 2, c); }
       }
-      row(56, y, 540, sel, "");
-      for (int f2 = 0; f2 < 7; f2++) { gfx_text5(x, y, 1, sel && f2 == wfield ? 0xffe070 : sel ? 0xe8ffd8 : C_TEXT, fld[f2]); x += gfx_text5_w(1, fld[f2]) + 14; }
     }
-    row(56, y, 540, wrow == addL, "+ ADD A LOGIC PIECE");
-    const char *hh[] = { "DPAD", "PICK / CHANGE", "L R", "FIELD", "A", "ADD", "X", "DELETE", "B", "DONE" }; hints(hh, 5);
+    if (wHold > 0) {                                          // the wire being carried, to the cursor
+      int cx, cy; port_xy(&wn[wcur], wport, &cx, &cy);
+      for (int j = 0; j < nwn; j++) if (node_out(&wn[j]) == wHold) { int x1, y1; port_xy(&wn[j], -1, &x1, &y1); gfx_thick(x1, y1, cx, cy, 2, (t >> 2) & 1 ? 0xffffff : WCOL[wHold % 8]); }
+    }
+    for (int k = 0; k < nwn; k++) {                           // the nodes
+      const WNode *n = &wn[k]; int x = n->x - wScX, y = n->y - wScY + 70;
+      if (x > GW || y > GH - 30 || x + n->w < 0 || y + n->h < 36) continue;
+      char t1[32], t2[32] = "";
+      uint32_t edge = n->kind == NK_LOGIC ? 0xf2e01c : n->kind == NK_SINK || n->kind == NK_CELL ? 0x4ab8ff : C_HI;
+      if (n->kind == NK_ALL) snprintf(t1, sizeof t1, "ALL TARGETS");
+      else if (n->kind == NK_TIMER) { snprintf(t1, sizeof t1, "%s %d", L.timer[n->ref].kind == FT_TICK ? "EVERY" : "AFTER", L.timer[n->ref].n); snprintf(t2, sizeof t2, "MOVES"); }
+      else if (n->kind == NK_SRC || n->kind == NK_SINK) { snprintf(t1, sizeof t1, "%s", src_kind(n->ref)); where(n->ref, t2, sizeof t2); }
+      else if (n->kind == NK_CELL) { snprintf(t1, sizeof t1, "%.18s", FUNCS[func_index(&func[n->ref])]); where(2 * n->ref * NN, t2, sizeof t2); }
+      else { const FoldLogic *q = &L.logic[n->ref]; if (q->op == FL_COUNT || q->op == FL_DELAY || q->op == FL_SHIFT) snprintf(t1, sizeof t1, "%s %d", OPNAMES[q->op], q->count); else snprintf(t1, sizeof t1, "%s", OPNAMES[q->op]); }
+      gfx_rect(x, y, n->w, n->h, 0x141e14); gfx_frame(x, y, n->w, n->h, edge);
+      gfx_text5(x + 8, y + 5, 1, 0xe8ffd8, t1); if (t2[0]) gfx_text5(x + 8, y + 16, 1, C_DIM, t2);
+      if (n->kind == NK_LOGIC) {                              // the gate's symbol
+        const FoldLogic *q = &L.logic[n->ref]; int sx = x + n->w - 46, sy = y + n->h / 2 - 9; uint32_t c = 0xf2e01c;
+        if (q->op == FL_AND) { gfx_rect(sx, sy, 12, 18, c); gfx_disc(sx + 12, sy + 9, 9, c); }
+        else if (q->op == FL_OR || q->op == FL_XOR) { gfx_tri2(sx, sy, sx + 26, sy + 9, sx + 4, sy + 9, c); gfx_tri2(sx, sy + 18, sx + 4, sy + 9, sx + 26, sy + 9, c); gfx_disc(sx + 8, sy + 9, 8, c); gfx_disc(sx + 1, sy + 9, 5, 0x141e14);
+          if (q->op == FL_XOR) gfx_thick(sx - 4, sy, sx - 4, sy + 18, 2, c); }
+        else if (q->op == FL_NOT) { gfx_tri2(sx, sy, sx, sy + 18, sx + 18, sy + 9, c); gfx_ring(sx + 22, sy + 9, 4, 2, c); }
+        else { gfx_frame(sx - 6, sy - 2, 34, 22, c); gfx_text5(sx - 2, sy + 6, 1, c, q->op == FL_LATCH ? "SR" : q->op == FL_COUNT ? "#" : q->op == FL_DELAY ? "..." : ">>"); }
+      }
+      for (int i = 0; i < node_nin(n); i++) {                 // inputs on the left edge, the output on the right
+        int px, py; port_xy(n, i, &px, &py); int on = node_in(n, i) != 0;
+        gfx_disc(px, py, 4, on ? WCOL[node_in(n, i) % 8] : 0x141e14); gfx_ring(px, py, 4, 1, 0xe8ffd8);
+        if (n->kind == NK_LOGIC && lop_arity(L.logic[n->ref].op) == 2) gfx_text5(px + 6, py - 3, 1, C_DIM, L.logic[n->ref].op == FL_LATCH ? (i ? "R" : "S") : (i ? "C" : "D"));
+      }
+      if (node_out(n) >= 0) { int px, py; port_xy(n, -1, &px, &py); int o = node_out(n); gfx_disc(px, py, 4, o ? WCOL[o % 8] : 0x141e14); gfx_ring(px, py, 4, 1, 0xe8ffd8); }
+    }
+    { int cx, cy; port_xy(&wn[wcur], wport, &cx, &cy); for (int w = 0; w < 2; w++) gfx_ring(cx, cy, 8 + w, 1, (t >> 3) & 1 ? C_CURSOR : 0xffffff); }
+    for (int k = 0; k < wCols; k++) {                          // the columns' names
+      int hx = 18 + k * 170 - wScX; if (hx < -100 || hx > GW) continue;
+      gfx_text5(hx, 44, 1, C_DIM, k == 0 ? "SENDS" : k == wCols - 1 ? "WORKS" : "LOGIC");
+    }
+    if (wAdd >= 0) {                                          // the add list
+      gfx_panel(220, 90, 200, 50 + (NOPS + 2) * 22, "ADD", C_HI);
+      for (int k = 0; k < NOPS + 2; k++) { char r[32]; if (k < NOPS) snprintf(r, sizeof r, "%s GATE", OPNAMES[k]); else snprintf(r, sizeof r, "TIMER: %s", k == NOPS ? "EVERY N MOVES" : "AFTER N MOVES"); row(240, 132 + k * 22, 170, k == wAdd, r); }
+    }
+    const char *hh[] = { "DPAD", "PORT", "A", wHold > 0 ? "CONNECT" : "TAKE WIRE", "X", "CUT", "Y", "ADD", "L R", "KIND", "R-STICK", "NUMBER", "B", "BACK" }; hints(hh, 7);
   }
   if (mode == M_MENU) {
     gfx_panel(190, 90, 260, 46 + NMENU * 30, "MENU", C_HI);
