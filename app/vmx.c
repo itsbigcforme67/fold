@@ -27,6 +27,7 @@ static const char *LIGHT_OFF[7] = { "..###..", ".#...#.", ".#...#.", "..#.#..", 
 static const char *LIGHT_ON[7] = { "#.###.#", ".#####.", ".#####.", "#.###.#", "..###..", "..###..", "......." };
 static const char *SENSOR[7] = { ".......", "...#...", "..#.#..", ".#.#.#.", "..#.#..", "...#...", "......." };
 static const char *SIGN[7] = { "#######", "#.....#", "#.###.#", "#.....#", "#######", "...#...", "...#..." };
+static const char *KEYPAD[7] = { "#######", "#.....#", "#.#.#.#", "#.....#", "#.#.#.#", "#.....#", "#######" };
 static const char *BRICK[7] = { "######.", "######.", "######.", ".......", "##.####", "##.####", "......." };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
@@ -70,6 +71,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
       else if (kind[c] == FK_LIGHT) sprite(b, x, y, aux[c] & 0x80 ? LIGHT_ON : LIGHT_OFF);
       else if (kind[c] == FK_SENSOR) sprite(b, x, y, SENSOR);
       else if (kind[c] == FK_SIGN) sprite(b, x, y, SIGN);
+      else if (kind[c] == FK_KEYPAD) sprite(b, x, y, KEYPAD);
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }
@@ -119,11 +121,23 @@ int vmx_talk(uint8_t *b, const char *text, int page) {
   if (page + 1 < pages) { px(b, 58, 59, 1); px(b, 59, 59, 1); px(b, 60, 59, 1); px(b, 59, 60, 1); }   // more: a little arrow
   return pages;
 }
+// a keypad over the room: the number so far, then 1-9, < (delete), 0, OK; sel = the key picked (0..11), msg = a word
+void vmx_keypad(uint8_t *b, const char *entered, int sel, const char *msg) {
+  rect(b, 8, 9, 55, 62, 0); rect(b, 8, 9, 55, 9, 1); rect(b, 8, 62, 55, 62, 1); rect(b, 8, 9, 8, 62, 1); rect(b, 55, 9, 55, 62, 1);
+  rect(b, 12, 12, 51, 20, 1); rect(b, 13, 13, 50, 19, 0);
+  vmx_text(b, 50 - 4 * (int)strlen(msg ? msg : entered), 14, msg ? msg : entered);
+  static const char *K[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "<", "0", "OK" };
+  for (int k = 0; k < 12; k++) {
+    int x = 13 + (k % 3) * 13, y = 24 + (k / 3) * 9;
+    vmx_text(b, x + 6 - 2 * (int)strlen(K[k]), y + 2, K[k]);
+    if (k == sel) { rect(b, x, y, x + 11, y, 1); rect(b, x, y + 8, x + 11, y + 8, 1); rect(b, x, y, x, y + 8, 1); rect(b, x + 11, y, x + 11, y + 8, 1); }
+  }
+}
 const char **vmx_icon(const char *n) {
   static const struct { const char *name; const char **spr; } T[] = {
     { "WALL", BRICK }, { "FLOOR", FLOOR }, { "BOX", VMX_BOX }, { "TARGET", TARGET }, { "BUTTON", BUTTON }, { "PLAYER", VMX_MAN },
     { "ICE", ICE }, { "ONE-WAY", ONEWAY }, { "PIT", PIT }, { "TELEPORTER", TELE }, { "PLATE", PLATE }, { "GATE", GATE_SHUT },
-    { "KEY", KEY }, { "LOCK", LOCK }, { "GRATE", GRATE }, { "SENSOR", SENSOR }, { "WALL GATE", BRICK }, { "LIGHT", LIGHT_ON }, { "SIGN", SIGN } };
+    { "KEY", KEY }, { "LOCK", LOCK }, { "GRATE", GRATE }, { "SENSOR", SENSOR }, { "WALL GATE", BRICK }, { "LIGHT", LIGHT_ON }, { "SIGN", SIGN }, { "KEYPAD", KEYPAD } };
   for (unsigned i = 0; i < sizeof T / sizeof T[0]; i++) if (!strcmp(T[i].name, n)) return T[i].spr;
   return FLOOR;
 }

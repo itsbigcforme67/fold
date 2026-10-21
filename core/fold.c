@@ -207,7 +207,7 @@ static void inputs(FoldGame *g, uint8_t *v) {
       case FK_SENSOR: v[s] |= c == g->p; break;
       case FK_KEY: v[s] |= (g->aux[c] & 0x80) != 0; break;
       case FK_LIGHT: v[s] |= (g->aux[c] & 0x80) != 0; break;   // a lit light
-      case FK_SIGN: break;                        // read: its signal is in toggled[]
+      case FK_SIGN: case FK_KEYPAD: break;        // read / the right code: its signal is in toggled[]
       default: if (g->target[c]) v[s] |= g->box[c]; break;   // a plain button is in toggled[]
     }
   }
@@ -295,7 +295,7 @@ static int enterable(const FoldGame *g, int c, int d, int box) {
   if (g->kind[c] == FK_LOCK) return !box && g->keys[0] > 0;   // you with a key can open it
   if (g->kind[c] == FK_GRATE) return !box;                    // you can cross a grate, a box can't
   if (g->kind[c] == FK_LIGHT) return 0;                        // a light is a post: talk to it from beside it
-  if (g->kind[c] == FK_SIGN) return 0;                         // a sign too: read it from beside it
+  if (g->kind[c] == FK_SIGN || g->kind[c] == FK_KEYPAD) return 0;   // a sign or a keypad too: from beside it
   return 1;
 }
 // a box arrives at c heading d: into a pit it drops (the pit becomes floor, the box is gone; returns -1); on ice it
@@ -492,6 +492,25 @@ int fold_value(const FoldGame *g, int which, int arg) {
   }
   return 0;
 }
+int fold_code(const FoldGame *g, int c) {
+  if (c < 0 || g->kind[c] != FK_KEYPAD || !g->aux[c] || g->aux[c] > g->lv->nkp) return 0;
+  const FoldKeypad *k = &g->lv->kp[g->aux[c] - 1];
+  int v = fold_value(g, k->src, k->arg);
+  return k->op == 1 ? v + k->n : k->op == 2 ? v - k->n : k->op == 3 ? v * k->n : v;
+}
+int fold_keypad(FoldGame *g, int c, int entered) {
+  if (c < 0 || g->kind[c] != FK_KEYPAD) return 0;
+  int code = fold_code(g, c), cmp = g->aux[c] && g->aux[c] <= g->lv->nkp ? g->lv->kp[g->aux[c] - 1].cmp : 0;
+  if (!(cmp == 1 ? entered >= code : cmp == 2 ? entered <= code : entered == code)) return 0;
+  int s = g->btn[c];
+  if (!s || g->toggled[s]) return 1;
+  if (g->nundo == FOLD_MAXUNDO) drop_oldest(g);
+  FoldUndo *u = &g->undo[g->nundo++];
+  u->p = (int16_t)g->p; u->camf = (uint8_t)g->camf; u->camrot = (uint8_t)g->camrot; u->pushed = 0;
+  u->facing = (uint8_t)g->facing; u->notmove = 1; u->j = g->nj;
+  set(g, A_TOG, s, 1);
+  return 1 | evaluate(g) << 1;
+}
 // a text with its {MOVES}-style words replaced by the values now
 static void expand(const FoldGame *g, const char *t, char *o, int len) {
   int n = 0;
@@ -514,6 +533,7 @@ int fold_describe(const FoldGame *g, int c, char *o, int len) {
     return 1;
   }
   if (g->txt[c]) { expand(g, g->lv->text[g->txt[c] - 1], o, len); return 1; }
+  if (g->kind[c] == FK_KEYPAD && !g->wall[c]) { cat(o, len, g->btn[c] && g->toggled[g->btn[c]] ? "A KEYPAD. THE CODE WAS RIGHT." : "A KEYPAD. ENTER THE CODE."); return 1; }
   if (g->box[c] && !g->btn[c]) { cat(o, len, "A BOX. PUSH IT ONTO A TARGET."); return 1; }
   int s = g->btn[c], k = g->kind[c];
   if (k == FK_LIGHT && !g->wall[c]) {         // a light: on or off, what lights it, what it does
@@ -586,7 +606,7 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       if (len < N) FAIL("line %d: room row too short", lineno);
       for (int x = 0; x < N; x++) {
         int c = roomFace * NN + roomRow * N + x; char ch = line[x];
-        if (!strchr("#.xbBpPoO~^>v<_123456789=|:kl+*%;@$&", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
+        if (!strchr("#.xbBpPoO~^>v<_123456789=|:kl+*%;@$&?", ch)) FAIL("line %d: unknown tile '%c'", lineno, ch);
         if (ch == '@' || ch == '$') { lv->kind[c] = FK_LIGHT; lv->aux[c] = ch == '$' ? 0x80 : 0; }   // a light (drawn lit: $)
         if (ch == '*') lv->kind[c] = FK_SENSOR;
         if (ch == '%' || ch == ';') { lv->kind[c] = FK_GATE; lv->aux[c] = (uint8_t)(0x40 | (ch == ';' ? 0x80 : 0)); }   // brick-look gate
@@ -594,6 +614,7 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
         if (ch == 'k') lv->kind[c] = FK_KEY;
         if (ch == 'l') lv->kind[c] = FK_LOCK;
         if (ch == '&') lv->kind[c] = FK_SIGN;
+        if (ch == '?') lv->kind[c] = FK_KEYPAD;
         if (ch == '|' || ch == ':') { lv->kind[c] = FK_GATE; lv->aux[c] = ch == ':' ? 0x80 : 0; }   // its group: a gate line
         if (ch == '=') { if (lv->nbtn == FOLD_MAXSIG - 1) FAIL("line %d: too many signals", lineno); lv->kind[c] = FK_PLATE; lv->btn[c] = (uint8_t)++lv->nbtn; }
         if (ch >= '1' && ch <= '9') { lv->kind[c] = FK_TELE; lv->aux[c] = (uint8_t)(ch - '0'); }
@@ -667,6 +688,28 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
         if (sscanf(rest + n, "%d", &k) != 1 || k < 0 || k >= FOLD_MAXSIG) FAIL("line %d: signal 0..63", lineno);
         if (word[0] == 's') lv->btn[c] = (uint8_t)k; else lv->drv[c] = (uint8_t)k;
       }
+    }
+    else if (!strcmp(word, "keypad")) {          // keypad <sq> <f|b> <x> <y> <value> [<number>] [+|-|* <n>] [=|>=|<=]
+      int i, x, y, n = 0, num; char side, tok[16];
+      if (sscanf(rest, "%d %c %d %d %n", &i, &side, &x, &y, &n) < 4 || i < 0 || i >= lv->nsq || x < 0 || y < 0 || x >= N || y >= N) FAIL("line %d: keypad <square> <f|b> <x> <y> <value> ...", lineno);
+      if (lv->nkp == FOLD_MAXKP) FAIL("line %d: too many keypads", lineno);
+      FoldKeypad k; memset(&k, 0, sizeof k); k.src = 255;
+      const char *w = rest + n; int m;
+      while (sscanf(w, " %15s%n", tok, &m) == 1) {
+        w += m;
+        if (k.src == 255) {
+          for (int v = 0; v < FV_N; v++) { const char *a = FOLD_VALUE_NAMES[v]; int same = 1; for (int q = 0; a[q] || tok[q]; q++) if ((tok[q] & ~32) != a[q]) { same = 0; break; } if (same) k.src = (uint8_t)v; }
+          if (k.src == 255) FAIL("line %d: keypad value number|moves|pushes|flips|turns|keys|boxes|lights|count", lineno);
+          if (k.src == FV_NUMBER || k.src == FV_COUNT) { if (sscanf(w, " %d%n", &num, &m) != 1) FAIL("line %d: keypad %s needs a number", lineno, tok); k.arg = (int16_t)num; w += m; }
+        } else if (!strcmp(tok, "+") || !strcmp(tok, "-") || !strcmp(tok, "*")) {
+          if (sscanf(w, " %d%n", &num, &m) != 1) FAIL("line %d: keypad %s needs a number", lineno, tok);
+          k.op = (uint8_t)(tok[0] == '+' ? 1 : tok[0] == '-' ? 2 : 3); k.n = (int16_t)num; w += m;
+        } else if (!strcmp(tok, "=")) k.cmp = 0; else if (!strcmp(tok, ">=")) k.cmp = 1; else if (!strcmp(tok, "<=")) k.cmp = 2;
+        else FAIL("line %d: keypad: what is '%s'?", lineno, tok);
+      }
+      if (k.src == 255) FAIL("line %d: keypad needs a value", lineno);
+      int c = (2 * i + (side == 'b')) * NN + y * N + x;
+      lv->kp[lv->nkp++] = k; lv->aux[c] = (uint8_t)lv->nkp;
     }
     else if (!strcmp(word, "input")) {           // a level-wide input
       int k; char what[16];

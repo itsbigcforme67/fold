@@ -20,6 +20,7 @@ void vmx_text(uint8_t *b, int x, int y, const char *s);
 // what a tile says, in a box over the room: word-wrapped to 14 characters, 7 lines a page. Returns the page count.
 int vmx_talk(uint8_t *b, const char *text, int page);
 extern const char *VMX_BOX[7], *VMX_BOXON[7], *VMX_MAN[7];   // 7x7 sprites, '#' = lit
+void vmx_keypad(uint8_t *b, const char *entered, int sel, const char *msg);   // the keypad over the room
 const char **vmx_icon(const char *name);   // a tile's 7x7 sprite by its editor name (for palettes)
 // 64x64 bits -> 0xRRGGBB (lit / dark)
 void vmx_colours(const uint8_t *b, uint32_t *out, uint32_t lit, uint32_t dark);

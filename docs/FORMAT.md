@@ -40,6 +40,13 @@ turns on the signal it sends (`signal ...`); that can be undone and doesn't coun
 values, filled in when read: `{MOVES}` `{PUSHES}` `{FLIPS}` `{TURNS}` `{KEYS}` `{BOXES}` (boxes on targets) `{LIGHTS}`
 (lights on) and `{COUNT <signal>}` (how far the counter sending that signal has counted).
 
+A keypad: `?` in a room (solid: A from beside it opens a 0-9 pad on the VMX). Its code:
+`keypad <square> <f|b> <x> <y> <value> [<number>] [+|-|* <n>] [=|>=|<=]`, where value is `number <n>` (a fixed code)
+or a live one worked out when the code is entered: `moves`, `pushes`, `flips`, `turns`, `keys`, `boxes` (on targets),
+`lights` (on), `count <signal>` (the counter sending it); then an optional adjustment, and how the entry must compare
+(= exactly, >= at least, <= at most). The right code turns on the keypad's signal (`signal ...`) and keeps it on; that
+can be undone and isn't a move. E.g. `keypad 0 f 3 2 moves + 2 =`.
+
 A cell's name: `cellname <square> <text>` (up to 15 characters; shown in the editor, and on the VMX as you walk in).
 
 A level with no player loads (an unfinished one, saved from the editor); playing it needs one.

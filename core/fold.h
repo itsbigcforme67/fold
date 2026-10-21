@@ -26,7 +26,7 @@
 
 // tile kinds (kind[]): what a floor tile is, beyond plain floor. aux[] holds its value (a one-way's direction in its
 // cell's frame, ...). Walls, targets, boxes and buttons have their own arrays.
-enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6, FK_KEY = 7, FK_LOCK = 8, FK_GRATE = 9, FK_SENSOR = 10, FK_LIGHT = 11, FK_SIGN = 12 };
+enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6, FK_KEY = 7, FK_LOCK = 8, FK_GRATE = 9, FK_SENSOR = 10, FK_LIGHT = 11, FK_SIGN = 12, FK_KEYPAD = 13 };
 // ONEWAY: aux = the only way in (0 up 1 right 2 down 3 left). TELE: aux = its pair (1-9; the two pads with it).
 // GATE: aux 0x80 = open, 0x40 = looks like a brick wall; a closed gate is a wall to anything entering.
 // KEY: picked up when you step on it (aux 0x80 = taken). LOCK: a wall, unless you walk in holding a key (it's used, the
@@ -51,6 +51,10 @@ typedef struct { uint8_t kind, sig, n; } FoldTimer;
 typedef struct { int8_t o[3], u[3], v[3], n[3]; } FoldSquare;   // n = v x u: the front's outward normal
 typedef struct { char kind; uint8_t sq; char spec[3]; } FoldAct; // kind f r s h g; spec "u".."i" or "<e><+|->"; g: sq = gate group
 
+// a keypad's code: a value (FV_*, with its number / counter signal) adjusted (op 0 none, 1 +, 2 -, 3 x by n) and how an
+// entry is checked against it (cmp 0 equal, 1 at least, 2 at most). A keypad tile's aux is 1 + its entry here.
+#define FOLD_MAXKP 32
+typedef struct { uint8_t src, op, cmp; int16_t arg, n; } FoldKeypad;
 typedef struct {
   char name[32];
   int nsq;
@@ -67,6 +71,7 @@ typedef struct {
   int ntext; char text[FOLD_MAXTEXT][FOLD_TEXTLEN];
   int geo[FOLD_MAXSQ];                    // index+1 into act of the square's one shift / hinge, 0 = none
   FoldAct geoAct[FOLD_MAXSQ];
+  int nkp; FoldKeypad kp[FOLD_MAXKP];
   int nsol; char sol[FOLD_MAXSOL];
 } FoldLevel;
 
@@ -114,7 +119,10 @@ int fold_read(FoldGame *g, int c);
 // the game's live values, for signs' {MOVES}-style words and keypads' codes
 enum { FV_NUMBER, FV_MOVES, FV_PUSHES, FV_FLIPS, FV_TURNS, FV_KEYS, FV_BOXES, FV_LIGHTS, FV_COUNT, FV_N };
 extern const char *FOLD_VALUE_NAMES[FV_N];   // "NUMBER" "MOVES" ... as typed in {..}; FV_COUNT: a counter piece's count
-int fold_value(const FoldGame *g, int which, int arg);   // arg: the number (FV_NUMBER) or the counter's signal (FV_COUNT)
+int fold_value(const FoldGame *g, int which, int arg);
+int fold_code(const FoldGame *g, int c);      // keypad c's code right now
+// a number entered on keypad c: right, its signal turns on and stays on (undoable, not a move): returns 1 | FOLD_* bits << 1
+int fold_keypad(FoldGame *g, int c, int entered);   // arg: the number (FV_NUMBER) or the counter's signal (FV_COUNT)
 int fold_describe(const FoldGame *g, int c, char *out, int len);   // what a tile says when you talk to it (0 = nothing)
 void fold_to_screen(int fx, int fy, int rot, int *sx, int *sy);   // room cell -> screen cell, room turned by rot
 FoldSquare fold_geo_pose(FoldSquare q, const FoldAct *a);           // where a shift / hinge puts a square

@@ -174,6 +174,17 @@ int main(void) {
   moves("dd"); { char t[200]; fold_describe(&g, CELL(0, 3, 2), t, sizeof t); printf("   sign says:  %s\n", t); CHECK("sign: a live value in its words", !strcmp(t, "YOU HAVE MOVED 2 TIMES.")); }
   fold_undo(&g); fold_undo(&g); CHECK("sign: undo the moves, still read", OPEN(4, 6) && g.moves == 0);
   fold_undo(&g); CHECK("sign: undo the read (no move taken off)", !OPEN(4, 6) && g.moves == 0 && !fold_undo(&g));
+  // ---- keypads: a fixed code, and a live one (moves taken + 2); the right code opens a gate, undoably ----
+  load(level("########\n#......#\n#.p?.?.#\n#......#\n#......#\n#......#\n#...|.|#\n########\n"
+             "keypad 0 f 3 2 number 1234\nsignal 0 f 3 2 1\ndrive 0 f 4 6 1\n"
+             "keypad 0 f 5 2 moves + 2 =\nsignal 0 f 5 2 2\ndrive 0 f 6 6 2\n"));
+  moves("r"); CHECK("keypad: you can't walk into it", g.p == CELL(0, 2, 2));
+  CHECK("keypad: a wrong code does nothing", !fold_keypad(&g, CELL(0, 3, 2), 1233) && !OPEN(4, 6));
+  CHECK("keypad: the right code opens the gate", fold_keypad(&g, CELL(0, 3, 2), 1234) && OPEN(4, 6) && g.moves == 0);
+  moves("dd"); CHECK("keypad: a live code (moves + 2)", fold_code(&g, CELL(0, 5, 2)) == 4);
+  CHECK("keypad: last move's number is wrong now", !fold_keypad(&g, CELL(0, 5, 2), 3) && !OPEN(6, 6));
+  CHECK("keypad: the live code works", fold_keypad(&g, CELL(0, 5, 2), 4) && OPEN(6, 6));
+  fold_undo(&g); CHECK("keypad: undo the entry", !OPEN(6, 6) && OPEN(4, 6));
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }
