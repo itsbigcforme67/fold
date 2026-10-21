@@ -70,6 +70,7 @@ static int prow, mrow, fileIx, vmxWin = 0, propSq, propsBack = M_SHAPE, trow, tc
 // playtest
 static FoldLevel PL; static FoldGame G; static int popT, wonT, holdB, bannerT, bannerSq = -1; static const char *popWord;
 static int kpOn, kpCell, kpSel, kpMsgT; static char kpBuf[8]; static const char *kpMsg;   // the keypad in play
+static int paT = -1, paLen = 12, paSd, paRel; static uint32_t paOld[56 * 56], paNew[56 * 56];   // moving to the next room
 static char talk[FOLD_TEXTLEN * 2]; static int talkOn, talkPage;   // what the tile you talked to says
 
 static void say(const char *s) { snprintf(msg, sizeof msg, "%s", s); msgT = 90; }
@@ -427,6 +428,7 @@ typedef struct { Vec3 o, u, v, n; } FFrame;   // a side's frame (front, or the b
 static FFrame face_frame(int f);
 static void screen_axes(Vec3 *rw, Vec3 *dw);
 static Vec3 vsc(Vec3 a, float k);
+static Vec3 vadd(Vec3 a, Vec3 b);
 // the cell editor's room animations (as on the VMX): moving into the next cell slides flat or turns over the edge (an
 // outside corner tips away like a cube, an inside corner folds up towards you); a right-stick turn spins the room; up /
 // down turns the cell over to its other side. The old picture is kept as a texture; both are drawn on 3D quads.
@@ -983,7 +985,7 @@ static char files[64][64]; static int nfiles;
 static void start_play(void) {
   build(&PL);
   if (PL.player < 0) { say("PUT THE PLAYER IN A CELL FIRST"); mode = M_SHAPE; return; }
-  fold_start(&G, &PL); popT = wonT = 0; bannerSq = -1; kpOn = 0; mode = M_PLAY;
+  fold_start(&G, &PL); popT = wonT = 0; bannerSq = -1; kpOn = 0; paT = -1; mode = M_PLAY;
 }
 static void menu_frame(const Pad *p) {
   int d;
@@ -1010,7 +1012,17 @@ static void menu_frame(const Pad *p) {
   }
   if (pressed(p, PAD_B) || pressed(p, PAD_START)) mode = M_SHAPE;
 }
+static void game_picture(int f, int rot, uint32_t *out) {   // the playtest's room, as on the VMX (56 x 56)
+  static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
+  vmx_room(b, G.wall, G.target, G.box, G.btn, G.kind, G.aux, f, rot, G.p, &G.s, 0);
+  for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) out[y * 56 + x] = b[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK;
+}
+static Vec3 sq_axis(const FoldSquare *q, int f, int which) {   // side f's room x (0), y (1) and outward normal (2) in the world
+  int sg = f & 1 ? -1 : 1;
+  return which == 0 ? v3f(sg * q->u[0], sg * q->u[1], sg * q->u[2]) : which == 1 ? v3f(q->v[0], q->v[1], q->v[2]) : v3f(sg * q->n[0], sg * q->n[1], sg * q->n[2]);
+}
 static void play_frame(const Pad *p) {
+  if (paT >= 0 && ++paT >= paLen) paT = -1;
   if (kpOn) {                                 // at a keypad: the D-pad picks a key, A presses it, B leaves
     int d;
     if (kpMsgT) { if (--kpMsgT == 0 && kpMsg && kpMsg[0] == 'R') kpOn = 0; return; }
@@ -1039,7 +1051,19 @@ static void play_frame(const Pad *p) {
   if (wonT) { wonT++; if (pressed(p, PAD_A) || pressed(p, PAD_B)) mode = M_SHAPE; return; }
   int d;
   if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
-    int r = fold_move(&G, PADDIR[d]);
+    int f0 = G.camf, rot0 = G.camrot, sd = PADDIR[d];
+    game_picture(f0, rot0, paOld);
+    int r = fold_move(&G, sd);
+    if (G.camf != f0 && !(r & FOLD_TELEPORTED)) {   // into the next room: slide, or turn over the corner (as the VMX does)
+      const FoldSquare *A = &G.s.sq[f0 >> 1], *B = &G.s.sq[G.camf >> 1];
+      int x0, y0, x1, y1, x2, y2;
+      fold_to_screen(0, 0, rot0, &x0, &y0); fold_to_screen(1, 0, rot0, &x1, &y1); fold_to_screen(0, 1, rot0, &x2, &y2);
+      Vec3 ax = sq_axis(A, f0, 0), ay = sq_axis(A, f0, 1);   // the old room's screen right / down in the world
+      Vec3 rw = vadd(vsc(ax, (float)(x1 - x0)), vsc(ay, (float)(x2 - x0))), dw = vadd(vsc(ax, (float)(y1 - y0)), vsc(ay, (float)(y2 - y0)));
+      Vec3 dWorld = sd == 0 ? vsc(dw, -1) : sd == 1 ? rw : sd == 2 ? dw : vsc(rw, -1), na = sq_axis(A, f0, 2), nb = sq_axis(B, G.camf, 2);
+      paRel = vdot3(na, nb) > 0.5f ? 0 : vdot3(nb, dWorld) > 0.5f ? 1 : vdot3(nb, dWorld) < -0.5f ? 2 : 0;
+      paSd = sd; paT = 0;
+    }
     popWord = r & FOLD_FLIPPED ? "FLIPPED" : r & FOLD_TURNED ? "TURNED" : r & FOLD_SHIFTED ? "SHIFTED" : r & FOLD_HINGED ? "HINGED" : NULL;
     if (popWord) popT = 30;
     if (fold_solved(&G)) wonT = 1;
@@ -1421,15 +1445,18 @@ static void mini_level(int x, int y, int w, int h) {
   }
   gfx_clip(0, 0, 0, 0); gfx_view_offset(0, 0);
 }
-static void room_anim_draw(int X0, int Y0) {    // the room as 3D quads while an animation runs (see anKind)
-  float t = (anT + 1) / (float)anLen; if (t > 1) t = 1; t = t * t * (3 - 2 * t);
-  room_picture(rf, rrot, anNew);
-  Tex to = { 56, 56, anOld }, tn = { 56, 56, anNew };
-  gfx_rect(X0, Y0, 336, 336, VMX_DARK);
-  gfx_clip(X0, Y0, 336, 336); gfx_zclear_rect(X0, Y0, 336, 336); gfx_fog(0, 1e9f, 2e9f);
-  gfx_view_offset(X0 + 168 - GW / 2, Y0 + 168 - GH / 2);
+// a room as 3D quads while an animation runs (the cell editor's, the playtest's): kind AN_*, time T of len, the way
+// moved (sd), over what (rel: 0 flat, 1 outside corner, 2 inside), turned which way (dir); old / new 56x56 pictures,
+// drawn into the S x S square at (X0, Y0)
+static void room_anim_draw(int kind, int T, int len, int sd, int rel, int dir, uint32_t *old, uint32_t *nw, int X0, int Y0, int S) {
+  float t = (T + 1) / (float)len; if (t > 1) t = 1; t = t * t * (3 - 2 * t);
+  Tex to = { 56, 56, old }, tn = { 56, 56, nw };
+  int anKind = kind, anSd = sd, anRel = rel, anDir = dir;
+  gfx_rect(X0, Y0, S, S, VMX_DARK);
+  gfx_clip(X0, Y0, S, S); gfx_zclear_rect(X0, Y0, S, S); gfx_fog(0, 1e9f, 2e9f);
+  gfx_view_offset(X0 + S / 2 - GW / 2, Y0 + S / 2 - GH / 2);
   const float E = 2.6f;
-  gfx_camera(mat_mul(mat_perspective(2 * atanf(GH / 336.0f / 2 / E), (float)GW / GH, 0.05f, 50.0f), mat_lookat(v3f(0, 0, E), v3f(0, 0, 0), v3f(0, 1, 0))));
+  gfx_camera(mat_mul(mat_perspective(2 * atanf(GH / (float)S / 2 / E), (float)GW / GH, 0.05f, 50.0f), mat_lookat(v3f(0, 0, E), v3f(0, 0, 0), v3f(0, 1, 0))));
   static const float CX[4] = { -0.5f, 0.5f, 0.5f, -0.5f }, CY[4] = { 0.5f, 0.5f, -0.5f, -0.5f };   // TL TR BR BL
   Vec3 P[4];
   if (anKind == AN_TURN) {                     // the new picture, from the old turn to its own
@@ -1466,7 +1493,7 @@ static void draw_room_editor(void) {
   if (L.sqname[rf >> 1][0]) snprintf(s, sizeof s, "%s  %s", L.sqname[rf >> 1], rf & 1 ? "BACK" : "FRONT");
   else snprintf(s, sizeof s, "CELL %d  %s SIDE", rf >> 1, rf & 1 ? "BACK" : "FRONT");
   gfx_panel(X0 - 12, Y0 - 40, 56 * S6 + 24, 56 * S6 + 52, s, C_HI);
-  if (anKind) room_anim_draw(X0, Y0);
+  if (anKind) { room_picture(rf, rrot, anNew); room_anim_draw(anKind, anT, anLen, anSd, anRel, anDir, anOld, anNew, X0, Y0, 336); }
   else for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S6, Y0 + y * S6, S6, S6, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
   uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
   if (!inPal && !anKind) for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 42 - w, Y0 + ry * 42 - w, 42 + 2 * w, 42 + 2 * w, cc);
@@ -1544,6 +1571,15 @@ void app_draw(void) {
     }
     if (talkOn) vmx_talk(b, talk, talkPage);
     if (kpOn) vmx_keypad(b, kpBuf, kpSel, kpMsgT ? kpMsg : NULL);
+    if (paT >= 0 && !talkOn && !kpOn) {          // moving to the next room: the room area as 3D (its HUD stays)
+      draw_vmx(GW / 2 - 96, 130, 3, b);
+      game_picture(G.camf, G.camrot, paNew);
+      room_anim_draw(AN_MOVE, paT, paLen, paSd, paRel, 0, paOld, paNew, GW / 2 - 96 + 12, 130 + 24, 168);
+      top_bar("PLAYTEST");
+      const char *h2[] = { "DPAD", "MOVE", "A", "TALK", "B", "UNDO", "HOLD B", "RESTART", "START", "BACK" };
+      hints(h2, 5);
+      return;
+    }
     if (wonT) { for (int y = 24; y < 40; y++) for (int x = 6; x < 58; x++) b[y * 64 + x] = 0; vmx_text(b, 20, 26, "CLEAR!"); snprintf(s, sizeof s, "%d MOVES", G.moves); vmx_text(b, 32 - 2 * (int)strlen(s) + 1, 33, s); }
     draw_vmx(GW / 2 - 96, 130, 3, b);
     top_bar("PLAYTEST");

@@ -13,13 +13,13 @@
 #   #p~~~..#
 #   ########
 L = []; shots = []
-SLOW = 1.25
+SLOW = 1.6
 def w(n): L.append("wait %d" % max(1, int(n * SLOW)))
 def b(x, n=6): L.append(x); w(n)
 def st(dx, dy, n=6): L.append("stick %d %d 1" % (dx, dy)); w(n)
 def rs(x, y, n, after=8): L.append("rstick %g %g %d" % (x, y, n)); w(after)
 def shot(name): L.append("shot build/shots/c_%s.ppm" % name); shots.append(name)
-def cap(t): L.append("caption " + t); w(12 if t else 0)
+def cap(t): L.append("caption " + t); w(14 if t else 0)
 N = 8
 item = 1
 pos = [3, 3]
