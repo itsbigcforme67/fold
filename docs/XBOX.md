@@ -66,6 +66,12 @@ tile's settings (X or B closes them), Y back to the level. Under the palette, th
 edited (yellow, seen as the editor shows it). Each edge of the room has a letter for the way it faces in the world:
 N / S (y), E / W (x), U / D (z); the level view's compass uses the same letters.
 
+Wiring (Start > WIRING): a diagram. What sends a signal is on the left, the logic gates in the middle (in columns by
+what feeds them), what signals work on the right; wires join outputs to inputs. D-pad between ports; A takes a wire
+from an output and connects it to an input (while carrying, the D-pad only stops on inputs); X cuts a wire, or on a
+gate's / timer's output removes it; Y adds a gate or a timer; L / R change a gate's kind (a timer's); the right stick
+its number (a counter's, delay's, shift register's length, a timer's moves); B or Start back.
+
 Cell settings (X): the cell's move in play (flip, turn, shift, hinge) and its signal, and layout tools for the side
 being edited: mirror left / right, mirror top / bottom, turn a quarter, copy, paste (as the room lies on screen;
 one-way arrows turn with it, edge doorways are matched up with the next cells again).

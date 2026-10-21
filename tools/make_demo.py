@@ -77,30 +77,30 @@ b("UP", 10)
 for _ in range(4): b("UP", 10)
 b("RIGHT", 20); b("RIGHT", 15)  # VMX WINDOW on / off
 b("DOWN", 15); shot("menu"); w(45)
-cap("WIRING: A LATCH AND AN AND"); b("A", 25)                      # WIRING
-b("DOWN", 12); b("DOWN", 12); b("A", 20)   # add a logic piece
-b("L", 8); b("L", 12)                       # its kind...
-for _ in range(4): b("RIGHT", 10)           # ...AND, OR, XOR, NOT, LATCH
-b("R", 8); b("R", 12); b("RIGHT", 10); b("RIGHT", 15)   # set by signal 2 (the sensor): out 4, once is enough
-b("DOWN", 12); b("A", 20)                   # another piece: an AND (out 5)
-b("RIGHT", 15)                              # the target (1)...
-b("R", 10)
-for _ in range(4): b("RIGHT", 10)           # ...and the latch (4)
-w(25); shot("wiring"); w(45)
+cap("WIRING: GATES AND WIRES"); b("A", 30)          # the wiring picture (the cursor on ALL TARGETS)
+cap("Y: ADD A GATE"); b("Y", 15)
+for _ in range(4): b("DOWN", 8)
+b("A", 20)                                          # a LATCH
+b("Y", 15); b("A", 25)                              # and an AND
+cap("A: TAKE A WIRE, A AGAIN: CONNECT IT")
+for _ in range(3): b("DOWN", 10)                   # the sensor's output...
+b("A", 15); b("RIGHT", 10)
+for _ in range(3): b("UP", 8)
+b("A", 25); shot("wire1"); w(20)                   # ...into the latch (S)
+b("RIGHT", 10); b("A", 15); b("LEFT", 10)          # the latch's output...
+for _ in range(3): b("DOWN", 8)
+b("A", 25)                                          # ...into the AND
+for _ in range(3): b("LEFT", 8)
+b("DOWN", 8); b("A", 15)                            # the target's output...
+b("RIGHT", 8); b("RIGHT", 8); b("UP", 8); b("A", 25)   # ...into the AND too
+cap("THE AND LIGHTS THE LIGHT, THE LIGHT OPENS THE GATE")
+b("RIGHT", 10); b("A", 15); b("RIGHT", 10); b("A", 25)   # the AND's output into the light
+for _ in range(5): b("LEFT", 8)
+b("DOWN", 8); b("DOWN", 8); b("A", 15)            # the light's own output...
+for _ in range(3): b("RIGHT", 8)
+b("DOWN", 8); b("A", 25)                            # ...into the gate
+w(20); shot("wiring"); w(60)
 b("B", 20)
-# ---- back in: the gate and the light follow the AND
-b("Y", 25)
-L.append("rstick -1 0 1"); w(20); pos[:] = [4, 0]     # opened at turn 3 again; the cursor (left at screen 7,4) keeps its tile through the turn
-cap("THE GATE OPENS WHEN THE LIGHT IS ON"); go(6, 4); b("X", 20)            # the gate's settings
-for _ in range(3): b("RIGHT", 10)   # worked by signal 3
-w(20); shot("gate"); w(45)
-b("B", 15)
-cap("THE LIGHT IS LIT BY THE AND"); go(6, 2); b("X", 20)            # the light's settings
-b("DOWN", 12)                   # lit by: the AND (signal 5); the gate opens off the light's own signal 3
-for _ in range(5): b("RIGHT", 10)
-w(20); shot("light"); w(45)
-b("B", 15)
-b("Y", 25)
 cap("PLAYTEST ON THE VMX"); b("START", 20); b("A", 30)      # PLAYTEST
 # ---- playing on the VMX
 for m in ["UP", "RIGHT", "UP"]: b(m, 12)  # box onto the target

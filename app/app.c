@@ -1645,7 +1645,7 @@ void app_draw(void) {
         else if (wn[j].kind == NK_LOGIC && L.logic[wn[j].ref].op == FL_SHIFT && s2 > o && s2 < o + L.logic[wn[j].ref].count) stage = s2 - o;
         if (stage < 0) continue;
         int x1, y1; port_xy(&wn[j], -1, &x1, &y1); y1 += stage * 4;
-        uint32_t c = WCOL[s2 % 8]; int mx = x2 > x1 + 24 ? (x1 + x2) / 2 - 10 + (s2 % 6) * 4 : x1 + 10 + (s2 % 4) * 3;   // staggered by signal
+        uint32_t c = WCOL[s2 % 8]; int mx = x2 > x1 + 24 ? x2 - 14 - (s2 % 6) * 4 : x1 + 10 + (s2 % 4) * 3;   // turns in the gap before its column, staggered
         if (x2 > x1 + 24) { gfx_thick(x1, y1, mx, y1, 2, c); gfx_thick(mx, y1, mx, y2, 2, c); gfx_thick(mx, y2, x2, y2, 2, c); }
         else { int yb = (y1 > y2 ? y1 : y2) + 30; gfx_thick(x1, y1, mx, y1, 2, c); gfx_thick(mx, y1, mx, yb, 2, c); gfx_thick(mx, yb, x2 - 14, yb, 2, c); gfx_thick(x2 - 14, yb, x2 - 14, y2, 2, c); gfx_thick(x2 - 14, y2, x2, y2, 2, c); }
       }
