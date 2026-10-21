@@ -1,7 +1,11 @@
 # FOLD on the original Xbox
 
-The same editor and game as the PC build (`app/`), built with nxdk. The software renderer's 640x480 picture is copied
-to the framebuffer each frame (`app/main_xbox.c`); no GPU code yet.
+The same editor and game as the PC build (`app/`), built with nxdk. The level view's 3D scene is drawn by the Xbox's
+GPU (`xbox/gpu.c`, pbkit): gfx.c projects and clips the scene's triangles and lines as it always does, then hands them
+over (`GfxGpu`, between `gfx_scene_begin` / `gfx_scene_end`) instead of filling pixels. Everything else (panels, text,
+the corner icons, compass, the cell editor, the VMX) is still drawn by the software renderer into gfx_px, which starts
+each frame see-through and goes over the GPU's picture as one texture. Without the GPU the software picture is copied
+to the framebuffer as before. pbkit owns the vertical-blank interrupt: nothing may call XVideoWaitForVBlank with it.
 
 ## Build
 

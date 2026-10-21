@@ -9,6 +9,11 @@ static float zbuf[GW * GH];
 static Mat4 VP;
 static uint32_t fogC; static float fogS = 1e9f, fogE = 2e9f;
 static int vofsX, vofsY, clx0, cly0, clx1 = GW - 1, cly1 = GH - 1;
+static const GfxGpu *gpu; static int inScene;   // a GPU takes the scene's triangles and lines (gfx_set_gpu)
+void gfx_set_gpu(const GfxGpu *g) { gpu = g; }
+void gfx_scene_begin(void) { inScene = gpu != NULL; }
+void gfx_scene_end(void) { inScene = 0; }
+void gfx_view_offset_get(int *dx, int *dy) { *dx = vofsX; *dy = vofsY; }
 static const uint8_t *metal; static int metalW, metalH;
 static uint32_t mixw(uint32_t a, uint32_t b, uint32_t w) {   // a towards b by w / 256 (red and blue in one multiply)
   uint32_t rb = (((a & 0xFF00FF) * (256 - w) + (b & 0xFF00FF) * w) >> 8) & 0xFF00FF;
@@ -20,6 +25,7 @@ static uint32_t mix(uint32_t a, uint32_t b, float t) {   // a towards b by t
   return mixw(a, b, (uint32_t)(t * 256));
 }
 static uint32_t fogged(uint32_t c, float z) { return z <= fogS ? c : mix(c, fogC, (z - fogS) / (fogE - fogS) * 0.85f); }
+void gfx_fog_get(uint32_t *c, float *start, float *end) { *c = fogC; *start = fogS; *end = fogE; }
 
 static const char *FONT[128];
 static void font_init(void) {
@@ -53,6 +59,7 @@ void gfx_gradient(uint32_t top, uint32_t bottom) {   // made once per pair of co
       }
     }
   }
+  if (gpu) { gpu->background(bg); for (int i = 0; i < GW * GH; i++) gfx_px[i] = 0xFF000000u; return; }   // under the 2D layer
   memcpy(gfx_px, bg, sizeof bg);
 }
 void gfx_dim(int x, int y, int w, int h, float k) {
@@ -60,7 +67,11 @@ void gfx_dim(int x, int y, int w, int h, float k) {
   int x0 = x < 0 ? 0 : x, x1 = x + w > GW ? GW : x + w;
   for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) {
     uint32_t *r = gfx_px + j * GW;
-    for (int i = x0; i < x1; i++) { uint32_t c = r[i]; r[i] = ((((c & 0xFF00FF) * m) >> 8) & 0xFF00FF) | ((((c & 0x00FF00) * m) >> 8) & 0x00FF00); }
+    for (int i = x0; i < x1; i++) {
+      uint32_t c = r[i];
+      if (c >> 24) { r[i] = ((c >> 24) * m >> 8) << 24; continue; }   // over the GPU's picture: see-through black, darker
+      r[i] = ((((c & 0xFF00FF) * m) >> 8) & 0xFF00FF) | ((((c & 0x00FF00) * m) >> 8) & 0x00FF00);
+    }
   }
 }
 
@@ -189,7 +200,7 @@ Mat4 mat_lookat(Vec3 eye, Vec3 at, Vec3 up) {
   return r;
 }
 void gfx_camera(Mat4 vp) { VP = vp; }
-void gfx_zclear(void) { for (int i = 0; i < GW * GH; i++) zbuf[i] = 1e30f; }
+void gfx_zclear(void) { if (inScene) return; for (int i = 0; i < GW * GH; i++) zbuf[i] = 1e30f; }   // (the GPU clears its own)
 
 typedef struct { float x, y, z, w; } V4;
 static V4 xform(Vec3 p) {
@@ -212,6 +223,7 @@ static uint32_t shade_c(uint32_t c, float k) {
   return (uint32_t)((r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b));
 }
 static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 3 lit (u = shade)
+uint32_t gfx_shade_lit(uint32_t c, float k);
 static uint32_t shade_lit(uint32_t c, float k) { // up to 1 darkens; above it, a shine towards white
   if (k <= 1) return shade_c(c, k < 0 ? 0 : k);
   float w = k - 1 > 1 ? 1 : k - 1;
@@ -219,6 +231,12 @@ static uint32_t shade_lit(uint32_t c, float k) { // up to 1 darkens; above it, a
   return (uint32_t)((int)(r + (255 - r) * w) << 16 | (int)(g + (255 - g) * w) << 8 | (int)(b + (255 - b) * w));
 }
 static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t colour, float shade) {
+  if (inScene) {                                // to the GPU, as it is
+    const CV *q[3] = { a, b, c }; GfxVert v[3];
+    for (int i = 0; i < 3; i++) { v[i].x = q[i]->c.x; v[i].y = q[i]->c.y; v[i].z = q[i]->c.z; v[i].w = q[i]->c.w; v[i].u = q[i]->u; v[i].v = q[i]->v; }
+    gpu->tri(v, triMode == 3 ? NULL : t, colour, shade, triMode, triAlpha);
+    return;
+  }
   float X[3], Y[3], IW[3], UW[3], VW[3];
   const CV *v[3] = { a, b, c };
   for (int i = 0; i < 3; i++) {
@@ -292,6 +310,7 @@ void gfx_quad(const Vec3 p[4], const Tex *t, uint32_t colour, float shade) {
   }
   for (int i = 1; i + 1 < n; i++) tri(&out[0], &out[i], &out[i + 1], t, colour, shade);
 }
+uint32_t gfx_shade_lit(uint32_t c, float k) { return shade_lit(c, k); }
 void gfx_tri_lit(const Vec3 p[3], const float sh[3], uint32_t colour) {
   CV in[3], out[6]; int n = 0;
   for (int i = 0; i < 3; i++) { in[i].c = xform(p[i]); in[i].u = sh[i]; in[i].v = 0; }
@@ -318,8 +337,9 @@ void gfx_line3(Vec3 a, Vec3 b, uint32_t c, int thick) {
   V4 A = xform(a), B = xform(b);
   const float NEAR = 0.05f;
   if (A.w < NEAR && B.w < NEAR) return;
-  if (A.w < NEAR) { float k = (NEAR - A.w) / (B.w - A.w); A.x += (B.x - A.x) * k; A.y += (B.y - A.y) * k; A.w = NEAR; }
-  if (B.w < NEAR) { float k = (NEAR - B.w) / (A.w - B.w); B.x += (A.x - B.x) * k; B.y += (A.y - B.y) * k; B.w = NEAR; }
+  if (A.w < NEAR) { float k = (NEAR - A.w) / (B.w - A.w); A.x += (B.x - A.x) * k; A.y += (B.y - A.y) * k; A.z += (B.z - A.z) * k; A.w = NEAR; }
+  if (B.w < NEAR) { float k = (NEAR - B.w) / (A.w - B.w); B.x += (A.x - B.x) * k; B.y += (A.y - B.y) * k; B.z += (A.z - B.z) * k; B.w = NEAR; }
+  if (inScene) { GfxVert ga = { A.x, A.y, A.z, A.w, 0, 0 }, gb = { B.x, B.y, B.z, B.w, 0, 0 }; gpu->line(&ga, &gb, c, thick); return; }
   float x0 = (A.x / A.w * 0.5f + 0.5f) * GW + vofsX, y0 = (0.5f - A.y / A.w * 0.5f) * GH + vofsY;
   float x1 = (B.x / B.w * 0.5f + 0.5f) * GW + vofsX, y1 = (0.5f - B.y / B.w * 0.5f) * GH + vofsY;
   int steps = (int)fmaxf(fabsf(x1 - x0), fabsf(y1 - y0)) + 1;

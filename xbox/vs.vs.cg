@@ -1,0 +1,27 @@
+/* FOLD's vertex program (xbox/gpu.c): positions arrive already projected and clipped (clip space, x y z w, from the
+ * software renderer's own transform), so only the viewport is applied here, then the divide by w; linear fog from w,
+ * the view depth: COLOR1 = (fog colour, factor), factor = saturate(w * k + b). Colour and texel coordinates pass on. */
+struct vIn {
+	float4 pos : POSITION;
+	float4 col : DIFFUSE;
+	float4 tex : TEXCOORD0;
+};
+
+struct vOut {
+	float4 pos  : POSITION;
+	float4 col  : COLOR0;
+	float4 col1 : COLOR1;
+	float4 tex0 : TEXCOORD0;
+};
+
+vOut main(vIn I, uniform float4x4 m_vp, uniform float4 fog_kb, uniform float4 fog_col)
+{
+	vOut r;
+	float4 p = mul(I.pos, m_vp);
+	r.col1 = float4(fog_col.xyz, saturate(p.w * fog_kb.x + fog_kb.y));
+	p.xyz = p.xyz / p.w;
+	r.pos = p;
+	r.col = I.col;
+	r.tex0 = I.tex;
+	return r;
+}

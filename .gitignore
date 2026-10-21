@@ -7,3 +7,4 @@ build/
 xbox/**/main.exe
 xbox/main.exe
 xbox/*.lib
+xbox/*.inl

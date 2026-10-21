@@ -59,6 +59,23 @@ void gfx_view_offset(int dx, int dy);                                          /
 void gfx_clip(int x, int y, int w, int h);                                     // 3D drawing only inside (w 0 = whole screen)
 void gfx_zclear_rect(int x, int y, int w, int h);
 
+// an optional GPU for the 3D scene (the Xbox: xbox/gpu.c). Set, gfx_px becomes the 2D layer over the GPU's picture: it
+// starts each frame transparent (top byte 0xFF = see-through; anything drawn writes 0x00RRGGBB, opaque; gfx_dim over a
+// see-through pixel makes see-through black). Between gfx_scene_begin and gfx_scene_end the scene's triangles and
+// lines go to the GPU, already projected and clipped here (clip space), instead of being drawn into gfx_px.
+typedef struct { float x, y, z, w, u, v; } GfxVert;              // clip space; u v: 0..1 (mode 3: u = the light)
+typedef struct {
+  void (*tri)(const GfxVert v[3], const Tex *t, uint32_t colour, float shade, int mode, float alpha);   // mode 0 / 1 see-through / 3 lit
+  void (*line)(const GfxVert *a, const GfxVert *b, uint32_t colour, int thick);
+  void (*background)(const uint32_t *px);                           // the gradient (GW x GH), under everything
+} GfxGpu;
+void gfx_set_gpu(const GfxGpu *g);
+void gfx_scene_begin(void);
+void gfx_scene_end(void);
+void gfx_fog_get(uint32_t *colour, float *start, float *end);
+void gfx_view_offset_get(int *dx, int *dy);
+uint32_t gfx_shade_lit(uint32_t c, float k);                      // the lit colour for a light k (as drawn here)
+
 Mat4 mat_mul(Mat4 a, Mat4 b);
 Mat4 mat_perspective(float fovy, float aspect, float zn, float zf);
 Mat4 mat_lookat(Vec3 eye, Vec3 at, Vec3 up);

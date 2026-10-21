@@ -1444,7 +1444,7 @@ void app_draw(void) {
   } else {
     if (!framesTried) load_frames();
     gfx_view_offset(0, 16);                   // (the green gradient behind it is drawn above)
-    draw_shape();
+    gfx_scene_begin(); draw_shape(); gfx_scene_end();   // (on the Xbox: on its GPU)
     gfx_view_offset(0, 0);
     tab_row(mode == M_WIRE ? 2 : mode == M_MENU ? 3 : 0);
     snprintf(s, sizeof s, "%s   %d CELLS", L.name, L.nsq); gfx_text5(GW - 12 - gfx_text5_w(1, s), 44, 1, 0x7f8a78, s);
