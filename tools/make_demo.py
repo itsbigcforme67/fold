@@ -19,11 +19,11 @@ def sel(k):
         if fwd <= 9: b("R", 5); item = (item + 1) % 18
         else: b("L", 5); item = (item - 1) % 18
 pos = [3, 3]
-def go(x, y):
-    while pos[0] < x: st(1, 0); pos[0] += 1
-    while pos[0] > x: st(-1, 0); pos[0] -= 1
-    while pos[1] < y: st(0, 1); pos[1] += 1
-    while pos[1] > y: st(0, -1); pos[1] -= 1
+def go(x, y):                    # the cell editor's cursor moves with the D-pad
+    while pos[0] < x: b("RIGHT", 7); pos[0] += 1
+    while pos[0] > x: b("LEFT", 7); pos[0] -= 1
+    while pos[1] < y: b("DOWN", 7); pos[1] += 1
+    while pos[1] > y: b("UP", 7); pos[1] -= 1
 def put(k, x, y): sel(k); go(x, y); b("A", 12)
 
 L.append("rec build/rec")
@@ -55,11 +55,11 @@ put(11, 6, 4)                   # a gate (starts shut)
 cap("FLOOR ON THE EDGE MAKES A DOORWAY"); put(1, 7, 4)                    # floor on the edge: a doorway into the next cell
 put(17, 6, 2)                   # a light
 shot("cell2"); w(45)
-cap("D-PAD JUMPS TO THE NEXT CELL"); go(7, 4); b("RIGHT", 22)        # D-pad: through the doorway into the next cell
+cap("STICK JUMPS TO THE NEXT CELL"); go(7, 4); st(1, 0, 22)        # left stick: through the doorway into the next cell
 pos[:] = [0, 4]
 put(3, 3, 4)                    # the target, over the fold
 shot("cell1"); w(45)
-cap(""); b("LEFT", 22); pos[:] = [7, 4]  # back
+cap(""); st(-1, 0, 22); pos[:] = [7, 4]  # back
 b("X", 25)                      # level view
 cap("CLICK RIGHT STICK: VMX"); b("RS", 40); b("RS", 15)        # right stick click: the VMX window
 # ---- the menu: every row, then wiring

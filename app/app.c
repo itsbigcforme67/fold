@@ -440,12 +440,12 @@ static void paint(int c, int what) {
 }
 static void room_frame(const Pad *p) {
   int d;
-  if (stick_rep(p->lx, p->ly, &d)) {
+  if (dpad_rep(p, &d)) {                      // the D-pad moves the cursor (off the edge: into the next cell)
     int sd = PADDIR[d], nx = rx + (int)SX[sd], ny = ry + (int)SY[sd];
     if (nx >= 0 && ny >= 0 && nx < N && ny < N) { rx = nx; ry = ny; }
     else go_room(screen_to_cell(rx, ry), sd);
   }
-  if (dpad_rep(p, &d)) {                      // jump a whole room: from the edge cell that way
+  if (stick_rep(p->lx, p->ly, &d)) {          // the left stick jumps a whole cell: from the edge tile that way
     int sd = PADDIR[d], ex = sd == 1 ? N - 1 : sd == 3 ? 0 : rx, ey = sd == 2 ? N - 1 : sd == 0 ? 0 : ry;
     if (!go_room(screen_to_cell(ex, ey), sd)) say("NO CELL THAT WAY");
   }
@@ -1053,7 +1053,7 @@ void app_draw(void) {
   if (roomish) {
     draw_room_editor();
     top_bar("CELL EDITOR");
-    const char *h[] = { "STICK", "MOVE", "A", "PLACE", "B", "FLOOR", "DPAD", "NEXT CELL", "Y", "SETTINGS", "X", "LEVEL" };
+    const char *h[] = { "DPAD", "MOVE", "A", "PLACE", "B", "FLOOR", "STICK", "NEXT CELL", "Y", "SETTINGS", "X", "LEVEL" };
     if (mode == M_ROOM) hints(h, 6);
   } else {
     if (!framesTried) load_frames();
