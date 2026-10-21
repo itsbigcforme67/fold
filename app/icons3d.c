@@ -346,7 +346,7 @@ void icons_compass(int x, int y, int w, int h, Vec3 dir, Vec3 up) {
   eye = v3f(dir.x / l * dist, dir.y / l * dist, dir.z / l * dist);
   gfx_camera(mat_mul(mat_perspective(2 * atanf(span * GH / w / 2 / dist), (float)GW / GH, 0.5f, 100.0f), mat_lookat(eye, v3f(0, 0, 0), up)));
   static const uint32_t C[3] = { 0xe84848, 0x58d838, 0x4878f0 };
-  static const char *N3[3] = { "X", "Y", "Z" };
+  static const char *N3[3] = { "E", "N", "U" }, *M3[3] = { "W", "S", "D" };   // x east, y north, z up
   for (int k = 0; k < 3; k++) {
     Xf a = xf(v3f(0, 0, 0));
     if (k == 1) a = rot(a, 2, 90); else if (k == 2) a = rot(a, 1, -90);
@@ -355,9 +355,10 @@ void icons_compass(int x, int y, int w, int h, Vec3 dir, Vec3 up) {
     box(&a, -0.55f, 0, 0, 1.1f, 0.07f, 0.07f, 0x3a3f3a);            // the minus side, thin and grey
   }
   Xf o = xf(v3f(0, 0, -0.1f)); cyl(&o, 0.16f, 0, 0.2f, 0xd8d8d0, 0xf0f0e8);
-  for (int k = 0; k < 3; k++) {                                     // the letters past the heads
+  for (int k = 0; k < 3; k++) {                                     // the letters past the heads, and at the other ends
     Vec3 q = v3f(k == 0 ? 1.85f : 0, k == 1 ? 1.85f : 0, k == 2 ? 1.85f : 0); float sx, sy;
     if (gfx_project(q, &sx, &sy)) gfx_text5((int)sx - 2, (int)sy - 3, 1, C[k], N3[k]);
+    if (gfx_project(v3f(-q.x * 0.75f, -q.y * 0.75f, -q.z * 0.75f), &sx, &sy)) gfx_text5((int)sx - 2, (int)sy - 3, 1, 0x8a908a, M3[k]);
   }
   done();
 }

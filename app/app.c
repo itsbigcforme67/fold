@@ -1093,21 +1093,32 @@ static uint32_t item_colour(int k) {          // a palette icon's colour (the ti
                case 14: return 0xa0a8a0; case 17: return 0xfff27a; }
   return 0x7dff3a;
 }
-// the whole level, small and turning slowly, under the tile palette: where the room being edited sits (yellow)
+// the whole level, small, under the tile palette: it follows the room being edited (yellow), seen from above it and
+// turned as the editor shows it, gliding to the next room when the cursor walks or jumps there
+static Vec3 mlEye, mlAt, mlUp; static int mlInit;
+static void screen_axes(Vec3 *rw, Vec3 *dw) {   // the cell editor's screen right / down in the world (room x, y turned by rrot)
+  FFrame F = face_frame(rf); int x0, y0, x1, y1, x2, y2;
+  fold_to_screen(0, 0, rrot, &x0, &y0); fold_to_screen(1, 0, rrot, &x1, &y1); fold_to_screen(0, 1, rrot, &x2, &y2);
+  *rw = vadd(vsc(F.u, (float)(x1 - x0)), vsc(F.v, (float)(x2 - x0)));
+  *dw = vadd(vsc(F.u, (float)(y1 - y0)), vsc(F.v, (float)(y2 - y0)));
+}
+static const char *compass_letter(Vec3 d) {     // a whole axis as a direction: E / W (x), N / S (y), U / D (z)
+  return d.x > 0.5f ? "E" : d.x < -0.5f ? "W" : d.y > 0.5f ? "N" : d.y < -0.5f ? "S" : d.z > 0.5f ? "U" : "D";
+}
 static void mini_level(int x, int y, int w, int h) {
   if (!L.nsq) return;
-  float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
-  for (int i = 0; i < L.nsq; i++) for (int k = 0; k < 3; k++) {
-    float a = L.sq[i].o[k], b = a + L.sq[i].u[k] + L.sq[i].v[k];
-    if (a < lo[k]) lo[k] = a; if (b < lo[k]) lo[k] = b; if (a > hi[k]) hi[k] = a; if (b > hi[k]) hi[k] = b;
-  }
-  Vec3 c = v3f((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
-  float rad = 0.8f; for (int k = 0; k < 3; k++) if ((hi[k] - lo[k]) / 2 + 0.5f > rad) rad = (hi[k] - lo[k]) / 2 + 0.5f;
-  float yaw = t * 0.012f, dist = rad * 4, span = rad * 2.4f;
-  Vec3 e = v3f(c.x + dist * 0.8f * cosf(yaw), c.y + dist * 0.8f * sinf(yaw), c.z + dist * 0.6f);
+  FFrame F = face_frame(rf);
+  Vec3 c = vadd(F.o, vsc(vadd(F.u, F.v), 0.5f));
+  Vec3 rw, dw; screen_axes(&rw, &dw);
+  const float dist = 4.2f, cp = cosf(0.75f), sp = sinf(0.75f), span = 3.6f;
+  Vec3 eyeG = vadd(c, vadd(vsc(F.n, dist * sp), vsc(dw, dist * cp))), upG = vadd(vsc(dw, -sp), vsc(F.n, cp));
+  Vec3 dOld = vnormz(vadd(mlEye, vsc(mlAt, -1))), dNew = vnormz(vadd(eyeG, vsc(c, -1)));
+  if (!mlInit || vdot3(dOld, dNew) < 0.2f || vdot3(mlUp, upG) < -0.2f) { mlEye = eyeG; mlAt = c; mlUp = upG; mlInit = 1; }   // the other way round: jump
+  mlEye = vmix(mlEye, eyeG, 0.2f); mlAt = vmix(mlAt, c, 0.2f); mlUp = vnormz(vmix(mlUp, upG, 0.2f));
+  Vec3 e = mlEye;
   gfx_clip(x, y, w, h); gfx_zclear_rect(x, y, w, h); gfx_fog(0, 1e9f, 2e9f);
   gfx_view_offset(x + w / 2 - GW / 2, y + h / 2 - GH / 2);
-  gfx_camera(mat_mul(mat_perspective(2 * atanf(span * GH / w / 2 / dist), (float)GW / GH, 0.3f, 200.0f), mat_lookat(e, c, v3f(0, 0, 1))));
+  gfx_camera(mat_mul(mat_perspective(2 * atanf(span * GH / w / 2 / dist), (float)GW / GH, 0.05f, 200.0f), mat_lookat(e, mlAt, mlUp)));
   for (int i = 0; i < L.nsq; i++) {
     const FoldSquare *q = &L.sq[i];
     Vec3 o = v3f(q->o[0], q->o[1], q->o[2]), u = v3f(q->u[0], q->u[1], q->u[2]), v = v3f(q->v[0], q->v[1], q->v[2]);
@@ -1131,6 +1142,13 @@ static void draw_room_editor(void) {
   for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S6, Y0 + y * S6, S6, S6, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
   uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
   if (!inPal) for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 42 - w, Y0 + ry * 42 - w, 42 + 2 * w, 42 + 2 * w, cc);
+  { Vec3 rw, dw; screen_axes(&rw, &dw);          // which way each edge faces in the world: N S E W, U up, D down
+    const Vec3 dir[4] = { vsc(dw, -1), rw, dw, vsc(rw, -1) };
+    const int ex[4] = { X0 + 168, X0 + 336, X0 + 168, X0 }, ey[4] = { Y0, Y0 + 168, Y0 + 336, Y0 + 168 };
+    for (int k = 0; k < 4; k++) {
+      gfx_disc(ex[k], ey[k], 12, 0x0a120a); gfx_ring(ex[k], ey[k], 12, 2, C_HI);
+      gfx_text5(ex[k] - 5, ey[k] - 7, 2, 0xf2e01c, compass_letter(dir[k]));
+    } }
   // the tile palette: icons in a grid, the picked one lit up and named
   int px0 = 410, py0 = 22, cols = 4;
   gfx_panel(px0, py0, 216, 300, "TILES", C_HI);
