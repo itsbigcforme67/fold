@@ -7,6 +7,7 @@ XBE_TITLE = FOLD
 F ?= $(CURDIR)/..
 SRCS = $(F)/app/main_xbox.c $(F)/app/app.c $(F)/app/gfx.c $(F)/app/vmx.c $(F)/app/icons3d.c $(F)/app/padscript.c $(F)/core/fold.c
 CFLAGS += -O2 -include $(F)/xbox/xbox_compat.h
+LDFLAGS += -stack:0x40000      # 256 KB main thread stack (nxdk's default is 64 KB; app_save once had a 77 KB local)
 NXDK_SDL = y
 OUTPUT_DIR = $(F)/build/xbox
 include $(NXDK_DIR)/Makefile

@@ -163,7 +163,7 @@ static void build(FoldLevel *out) {
 
 // ---- files -------------------------------------------------------------------------------------------------------
 int app_save(const char *p) {
-  FoldLevel B; build(&B);
+  static FoldLevel B; build(&B);   // static: 77 KB, more than the Xbox main thread's stack
   FILE *f = fopen(p, "w"); if (!f) return 0;
   fprintf(f, "fold 1\nname %s\n", L.name);
   for (int i = 0; i < L.nsq; i++) { const FoldSquare *q = &L.sq[i];

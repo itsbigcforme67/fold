@@ -74,3 +74,6 @@ On the PC: keys as before, plus - / = zoom, G the left stick click; a modern pad
   pixel), the control icons redrawn only while used (or every other frame for the two with idle animation), and the
   shadow blur limited to where the shadow is.
 - xemu's speed is not the console's: real frame rates need the hardware.
+- Saving crashed the real Xbox: app_save had a 77 KB local copy of the level, and nxdk gives the main thread a 64 KB
+  stack (the PC gives 8 MB). It is static now and the XBE asks for a 256 KB stack (`-stack:0x40000`). Checked in xemu
+  on a writable scratch disk: the save lands in E:\Games\FOLD\levels and the game carries on.

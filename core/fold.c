@@ -656,6 +656,6 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
   }
   if (roomFace >= 0) FAIL("room block cut short");
   if (!lv->nsq) FAIL("no squares");
-  if (lv->player < 0) FAIL("no player");
+  // no player is allowed: an unfinished level from the editor (playing one needs a player; the app checks)
   return 1;
 }
