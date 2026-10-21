@@ -51,7 +51,12 @@ static int msgT, mode = M_SHAPE, quit, t;
 // cursor cell (shape view): corner co, axes ce1 ce2 (positive unit grid vectors)
 static int co[3], ce1[3] = { 1, 0, 0 }, ce2[3] = { 0, 1, 0 };
 // camera: orbit round the cursor
-static float yaw = -PI / 2, yawGoal = -PI / 2, pitch = 0.9f, dist = 5.5f;
+// the camera rides on the working plane: Fn its normal towards you, Fr / Fu its screen right / up (whole axes; a
+// fold rolls the frame 90 degrees over the edge, so the new cell is seen just as the last one was). The view shown
+// eases towards the frame (vn / vr / vu); the right stick adds a look round (orbit, pitch), L / R turn the frame.
+static int Fn[3] = { 0, 0, 1 }, Fr[3] = { 1, 0, 0 }, Fu[3] = { 0, 1, 0 };
+static Vec3 vn = { 0, 0, 1 }, vr = { 1, 0, 0 }, vu = { 0, 1, 0 };
+static float orbit = 0, pitch = 0.9f, dist = 5.5f;
 static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
@@ -81,12 +86,14 @@ static void make_room(int f) {           // a fresh room: wall round the outside
 }
 static void clear_face(int f) { for (int c = f * NN; c < (f + 1) * NN; c++) { L.wall[c] = 1; L.target[c] = L.box[c] = L.btn[c] = L.kind[c] = L.aux[c] = 0; } if (L.player / NN == f) L.player = -1; }
 static void resurface(void) { fold_surface(&S, L.sq, L.nsq); }
+static void camera_reset(void);
 static void new_level(void) {
   memset(&L, 0, sizeof L); memset(L.wall, 1, sizeof L.wall); L.player = -1;
   memset(sides, 0, sizeof sides); memset(func, 0, sizeof func); memset(trig, 0, sizeof trig);
   strcpy(L.name, "NEW LEVEL"); path[0] = 0;
   int o[3] = { 0, 0, 0 }; memcpy(co, o, sizeof co);
   ce1[0] = 1; ce1[1] = ce1[2] = 0; ce2[1] = 1; ce2[0] = ce2[2] = 0;
+  camera_reset();
   resurface();
 }
 static int add_sq(int nc[3]) {           // a tile at the cursor, its front facing nc
@@ -257,33 +264,47 @@ static const float SX[4] = { 0, 1, 0, -1 }, SY[4] = { -1, 0, 1, 0 };
 
 // ---- camera and screen directions ---------------------------------------------------------------------------------
 static Vec3 cur_centre(void) { return v3f(co[0] + (ce1[0] + ce2[0]) * 0.5f, co[1] + (ce1[1] + ce2[1]) * 0.5f, co[2] + (ce1[2] + ce2[2]) * 0.5f); }
+static Vec3 iv(const int *a) { return v3f((float)a[0], (float)a[1], (float)a[2]); }
+static Vec3 vnormz(Vec3 a) { float l = sqrtf(a.x * a.x + a.y * a.y + a.z * a.z); return l > 1e-6f ? v3f(a.x / l, a.y / l, a.z / l) : a; }
+static float vdot3(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+static Vec3 vcross3(Vec3 a, Vec3 b) { return v3f(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
+static Vec3 vmix(Vec3 a, Vec3 b, float k) { return v3f(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, a.z + (b.z - a.z) * k); }
+static void view_axes(Vec3 *r, Vec3 *u) {        // the shown screen right / up, with the look round
+  float c = cosf(orbit), s = sinf(orbit);
+  *r = v3f(vr.x * c + vu.x * s, vr.y * c + vu.y * s, vr.z * c + vu.z * s);
+  *u = v3f(vu.x * c - vr.x * s, vu.y * c - vr.y * s, vu.z * c - vr.z * s);
+}
+static void camera_reset(void) {
+  int n[3] = { 0, 0, 1 }, r[3] = { 1, 0, 0 }, u[3] = { 0, 1, 0 };
+  memcpy(Fn, n, sizeof n); memcpy(Fr, r, sizeof r); memcpy(Fu, u, sizeof u);
+  vn = iv(Fn); vr = iv(Fr); vu = iv(Fu); orbit = 0; pitch = 0.9f;
+}
 static void camera(void) {
   Vec3 c = cur_centre();
   look.x += (c.x - look.x) * 0.25f; look.y += (c.y - look.y) * 0.25f; look.z += (c.z - look.z) * 0.25f;
-  yaw += (yawGoal - yaw) * 0.25f;
-  eye = v3f(look.x + dist * cosf(pitch) * cosf(yaw), look.y + dist * cosf(pitch) * sinf(yaw), look.z + dist * sinf(pitch));
-  Vec3 up = v3f(0, 0, 1);
-  if (fabsf(pitch) > 1.5f) up = v3f(-cosf(yaw), -sinf(yaw), 0);
+  vn = vnormz(vmix(vn, iv(Fn), 0.25f)); vr = vmix(vr, iv(Fr), 0.25f);   // ease the frame, keep it square
+  vr = vnormz(v3f(vr.x - vn.x * vdot3(vr, vn), vr.y - vn.y * vdot3(vr, vn), vr.z - vn.z * vdot3(vr, vn)));
+  vu = vcross3(vn, vr);
+  Vec3 r, u; view_axes(&r, &u);
+  float cp = cosf(pitch), sp = sinf(pitch);      // from above the plane, tipped back towards the screen's bottom
+  eye = v3f(look.x + dist * (vn.x * sp - u.x * cp), look.y + dist * (vn.y * sp - u.y * cp), look.z + dist * (vn.z * sp - u.z * cp));
+  Vec3 up = v3f(u.x * sp + vn.x * cp, u.y * sp + vn.y * cp, u.z * sp + vn.z * cp);
   VPm = mat_mul(mat_perspective(1.05f, (float)GW / GH, 0.05f, 100.0f), mat_lookat(eye, look, up));
   gfx_camera(VPm);
 }
-// of the cursor plane's 4 directions (+-e1, +-e2), the one pointing most along screen direction sd
+// screen direction sd (0 up 1 right 2 down 3 left) as one of the frame's in-plane axes: the one nearest to that
+// screen direction as shown (the look round can turn the view a long way)
 static void plane_dir(int sd, int out[3]) {
-  Vec3 c = cur_centre(); float cx, cy, best = -1e9f;
-  gfx_project(c, &cx, &cy);
+  Vec3 r, u; view_axes(&r, &u);
+  Vec3 want = sd == 0 ? u : sd == 1 ? r : sd == 2 ? v3f(-u.x, -u.y, -u.z) : v3f(-r.x, -r.y, -r.z);
+  const int *cand[2] = { Fr, Fu }; float best = -1e9f;
   for (int k = 0; k < 4; k++) {
-    const int *a = k < 2 ? ce1 : ce2; int sg = k & 1 ? -1 : 1;
-    float x, y;
-    if (!gfx_project(v3f(c.x + sg * a[0] * 0.5f, c.y + sg * a[1] * 0.5f, c.z + sg * a[2] * 0.5f), &x, &y)) continue;
-    float dx = x - cx, dy = y - cy, l = sqrtf(dx * dx + dy * dy) + 1e-6f, s = (dx * SX[sd] + dy * SY[sd]) / l;
-    if (s > best) { best = s; for (int i = 0; i < 3; i++) out[i] = sg * a[i]; }
+    int sg = k & 1 ? -1 : 1; const int *a = cand[k >> 1];
+    float d = sg * (a[0] * want.x + a[1] * want.y + a[2] * want.z);
+    if (d > best) { best = d; for (int i = 0; i < 3; i++) out[i] = sg * a[i]; }
   }
 }
-static void facing_normal(int nc[3]) {   // the cursor plane's normal on the camera's side
-  int n[3] = { ce1[1] * ce2[2] - ce1[2] * ce2[1], ce1[2] * ce2[0] - ce1[0] * ce2[2], ce1[0] * ce2[1] - ce1[1] * ce2[0] };
-  Vec3 c = cur_centre(); float d = (eye.x - c.x) * n[0] + (eye.y - c.y) * n[1] + (eye.z - c.z) * n[2];
-  for (int i = 0; i < 3; i++) nc[i] = d < 0 ? -n[i] : n[i];
-}
+static void facing_normal(int nc[3]) { memcpy(nc, Fn, sizeof Fn); }   // the cursor plane's normal on your side
 static int sq_face_toward_eye(int i) {   // which side of square i faces the camera
   const FoldSquare *q = &L.sq[i];
   Vec3 c = v3f(q->o[0] + (q->u[0] + q->v[0]) * 0.5f, q->o[1] + (q->u[1] + q->v[1]) * 0.5f, q->o[2] + (q->u[2] + q->v[2]) * 0.5f);
@@ -293,21 +314,24 @@ static int sq_face_toward_eye(int i) {   // which side of square i faces the cam
 
 // ---- shape view --------------------------------------------------------------------------------------------------
 static void fold_plane(int sd) {
-  int a[3], b[3], nc[3]; plane_dir(sd, a); facing_normal(nc);
+  // roll over the cursor cell's edge that way, round the back of the shape (away from you); the camera rolls with
+  // it, so the new cell faces you as the last one did and the last one now hangs away behind its edge
+  int a[3], b[3], n0[3]; plane_dir(sd, a); memcpy(n0, Fn, sizeof n0);
   int pos = a[0] + a[1] + a[2] > 0;               // folding over the cell's far edge along that axis
   const int *other = (abs(a[0]) == ce1[0] && abs(a[1]) == ce1[1] && abs(a[2]) == ce1[2]) ? ce2 : ce1;
   memcpy(b, other, sizeof b);
   int start[3], away[3];
-  for (int i = 0; i < 3; i++) { start[i] = co[i] + (pos ? a[i] : 0); away[i] = -nc[i]; }   // pivot edge's low end
-  // the new plane wraps away from you, round the shape (seen from outside, its front faces the way you went)
+  for (int i = 0; i < 3; i++) { start[i] = co[i] + (pos ? a[i] : 0); away[i] = -n0[i]; }   // pivot edge's low end
   for (int i = 0; i < 3; i++) { co[i] = start[i] + (away[i] < 0 ? away[i] : 0); ce1[i] = b[i]; ce2[i] = abs(away[i]); }
-  // and the view turns to face it from that side, a little from the side and above
-  if (a[2] == 0) {
-    float y = atan2f((float)a[1], (float)a[0]) + 0.55f;
-    while (y - yawGoal > PI) y -= 2 * PI;
-    while (y - yawGoal < -PI) y += 2 * PI;
-    yawGoal = y; pitch = 0.45f;
-  } else pitch = a[2] > 0 ? 1.0f : -1.0f;
+  // the frame: the new normal is the way you went; that screen axis now points round the back (-old normal)
+  int *ax = (abs(a[0]) == abs(Fr[0]) && abs(a[1]) == abs(Fr[1]) && abs(a[2]) == abs(Fr[2])) ? Fr : Fu;
+  int same = a[0] == ax[0] && a[1] == ax[1] && a[2] == ax[2];
+  for (int i = 0; i < 3; i++) { Fn[i] = a[i]; ax[i] = same ? -n0[i] : n0[i]; }
+}
+static void turn_view(int dir) {                // L / R: a quarter turn of the frame about the plane's normal
+  int r[3], u[3];
+  for (int i = 0; i < 3; i++) { r[i] = dir > 0 ? -Fu[i] : Fu[i]; u[i] = dir > 0 ? Fr[i] : -Fr[i]; }
+  memcpy(Fr, r, sizeof r); memcpy(Fu, u, sizeof u);
 }
 static void shape_frame(const Pad *p) {
   int d;
@@ -316,11 +340,11 @@ static void shape_frame(const Pad *p) {
     for (int i = 0; i < 3; i++) co[i] += a[i];
   }
   if (dpad_rep(p, &d)) fold_plane(PADDIR[d]);
-  if (pressed(p, PAD_L)) yawGoal -= PI / 2;
-  if (pressed(p, PAD_R)) yawGoal += PI / 2;
+  if (pressed(p, PAD_L)) turn_view(-1);
+  if (pressed(p, PAD_R)) turn_view(1);
   if (p->held & PAD_BACK) { dist *= 1 + p->ry * 0.04f; if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20; }   // BACK + right stick: zoom
-  else { yawGoal += p->rx * 0.06f; pitch -= p->ry * 0.05f; }
-  if (pitch > 1.45f) pitch = 1.45f; if (pitch < -1.45f) pitch = -1.45f;
+  else { orbit += p->rx * 0.06f; pitch -= p->ry * 0.05f; }   // right stick: look round
+  if (pitch > 1.5f) pitch = 1.5f; if (pitch < 0.15f) pitch = 0.15f;
   int i = find_sq(co, ce1, ce2);
   if (pressed(p, PAD_A)) {
     if (i >= 0) say("A CELL IS ALREADY THERE");
