@@ -74,6 +74,8 @@ input <k> alltargets              k is on while every target has a box
 input <k> tick <n>                k is on for one move every n moves (timers, blinking)
 input <k> moves <n>               k is on once you have made n moves (step limits)
 logic <out> and|or|xor <in...>    up to 4 inputs; not <in>; latch <set> [<reset>]; count <n> <in> (on after n switch-ons);
+                                 shift <n> <data> <clock>: a shift register of n stages (1..8); each time the clock
+                                 switches on, the data goes in; it sends n signals in a row from <out> (newest first)
                                   delay <n> <in> (its input as it was n moves ago, n up to 8)
 link <k> <moves...>               k's cell moves: each change flips / shifts / hinges (back and forth) or turns a quarter
                                   (r); R turns while k is on and back while it's off

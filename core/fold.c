@@ -241,6 +241,13 @@ static void logic(FoldGame *g, uint8_t *v) {
         set(g, A_LPREV, k, v[L->in[0]] != 0);
         on = g->lstate[k] >= L->count; break;
       case FL_DELAY: { int n = L->count < 1 ? 1 : L->count > 8 ? 8 : L->count; on = g->lstate[k] >> (n - 1) & 1; break; }
+      case FL_SHIFT: {
+        int len = L->count < 1 ? 1 : L->count > 8 ? 8 : L->count, clk = L->n > 1 && v[L->in[1]];
+        if (clk && !g->lprev[k]) set(g, A_LST, k, ((g->lstate[k] << 1) | (v[L->in[0]] != 0)) & ((1 << len) - 1));
+        set(g, A_LPREV, k, clk);
+        for (int i = 1; i < len && L->out + i < FOLD_MAXSIG; i++) v[L->out + i] |= (uint8_t)(g->lstate[k] >> i & 1);
+        on = g->lstate[k] & 1; break;
+      }
     }
     v[L->out] |= (uint8_t)on;
   }
@@ -406,6 +413,15 @@ static const char *src_name(const FoldGame *g, int s) {   // what sends signal s
 static void cond(const FoldGame *g, int s, char *o, int len, int depth) {   // when signal s is on
   const char *n = src_name(g, s);
   if (n) { cat(o, len, n); return; }
+  for (int k = 0; k < g->lv->nlogic; k++) {   // a stage of a shift register
+    const FoldLogic *L = &g->lv->logic[k];
+    if (L->op != FL_SHIFT || s < L->out || s >= L->out + L->count) continue;
+    if (depth > 1) { cat(o, len, "SOMETHING ELSE HAPPENS"); return; }
+    char b[48]; int i = s - L->out;
+    cond(g, L->in[0], o, len, depth + 1);
+    if (!i) snprintf(b, sizeof b, " (AT THE LAST CLOCK: "); else if (i == 1) snprintf(b, sizeof b, " (A CLOCK BEFORE THE LAST: "); else snprintf(b, sizeof b, " (%d CLOCKS BEFORE THE LAST: ", i);
+    cat(o, len, b); cond(g, L->in[1], o, len, depth + 1); cat(o, len, ")"); return;
+  }
   for (int k = 0; k < g->lv->nlogic; k++) if (g->lv->logic[k].out == s) {
     const FoldLogic *L = &g->lv->logic[k];
     if (depth > 1) { cat(o, len, "SOMETHING ELSE HAPPENS"); return; }
@@ -726,16 +742,18 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
       FoldLogic *L = &lv->logic[lv->nlogic]; memset(L, 0, sizeof *L);
       char op[8]; int out, n = 0;
       if (sscanf(rest, "%d %7s %n", &out, op, &n) < 2 || out < 1 || out >= FOLD_MAXSIG) FAIL("line %d: logic <out> <op> <in...>", lineno);
-      static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count", "delay" };
-      L->op = 255; for (int k = 0; k < 7; k++) if (!strcmp(op, OPS[k])) L->op = (uint8_t)k;
-      if (L->op == 255) FAIL("line %d: logic op is and / or / xor / not / latch / count / delay", lineno);
+      static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count", "delay", "shift" };
+      L->op = 255; for (int k = 0; k < 8; k++) if (!strcmp(op, OPS[k])) L->op = (uint8_t)k;
+      if (L->op == 255) FAIL("line %d: logic op is and / or / xor / not / latch / count / delay / shift", lineno);
       const char *w = rest + n; int v, m;
-      if (L->op == FL_COUNT || L->op == FL_DELAY) {
-        if (sscanf(w, "%d %n", &v, &m) < 1 || v < 1 || v > (L->op == FL_DELAY ? 8 : 255)) FAIL("line %d: %s <n> <in>", lineno, op);
+      if (L->op == FL_COUNT || L->op == FL_DELAY || L->op == FL_SHIFT) {
+        if (sscanf(w, "%d %n", &v, &m) < 1 || v < 1 || v > (L->op == FL_COUNT ? 255 : 8)) FAIL("line %d: %s <n> <in>", lineno, op);
+        if (L->op == FL_SHIFT && out + v - 1 >= FOLD_MAXSIG) FAIL("line %d: shift: its %d signals from %d go past 63", lineno, v, out);
         L->count = (uint8_t)v; w += m;
       }
       while (L->n < 4 && sscanf(w, "%d%n", &v, &m) == 1) { if (v < 1 || v >= FOLD_MAXSIG) FAIL("line %d: signal 1..63", lineno); L->in[L->n++] = (uint8_t)v; w += m; }
       if (!L->n) FAIL("line %d: logic needs inputs", lineno);
+      if (L->op == FL_SHIFT && L->n < 2) FAIL("line %d: shift <n> <data> <clock>", lineno);
       L->out = (uint8_t)out; lv->nlogic++;
     }
     else if (!strcmp(word, "box") || !strcmp(word, "player")) {   // a box / the player on any tile

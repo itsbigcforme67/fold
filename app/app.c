@@ -131,7 +131,7 @@ static void remove_sq(int i) {
 static int sig_used(int k) {                  // does anything send signal k?
   if (L.allSig == k) return 1;
   for (int i = 0; i < L.ntimer; i++) if (L.timer[i].sig == k) return 1;
-  for (int i = 0; i < L.nlogic; i++) if (L.logic[i].out == k) return 1;
+  for (int i = 0; i < L.nlogic; i++) if (L.logic[i].out == k || (L.logic[i].op == FL_SHIFT && k > L.logic[i].out && k < L.logic[i].out + L.logic[i].count)) return 1;
   for (int c = 0; c < 2 * L.nsq * NN; c++) if (L.btn[c] == k && !L.wall[c]) return 1;
   return 0;
 }
@@ -202,11 +202,11 @@ int app_save(const char *p) {
   }
   if (B.allSig) fprintf(f, "input %d alltargets\n", B.allSig);
   for (int k = 0; k < B.ntimer; k++) if (B.timer[k].sig) fprintf(f, "input %d %s %d\n", B.timer[k].sig, B.timer[k].kind == FT_TICK ? "tick" : "moves", B.timer[k].n ? B.timer[k].n : 1);
-  static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count", "delay" };
+  static const char *OPS[] = { "and", "or", "xor", "not", "latch", "count", "delay", "shift" };
   for (int k = 0; k < B.nlogic; k++) {
     const FoldLogic *q = &B.logic[k];
     fprintf(f, "logic %d %s", q->out, OPS[q->op]);
-    if (q->op == FL_COUNT || q->op == FL_DELAY) fprintf(f, " %d", q->count ? q->count : 1);
+    if (q->op == FL_COUNT || q->op == FL_DELAY || q->op == FL_SHIFT) fprintf(f, " %d", q->count ? q->count : 1);
     for (int i = 0; i < q->n; i++) fprintf(f, " %d", q->in[i]);
     fputc('\n', f);
   }
@@ -818,8 +818,8 @@ static void tile_frame(const Pad *p) {
 }
 
 // ---- wiring: the level-wide input and the logic pieces ------------------------------------------------------------
-static const char *OPNAMES[] = { "AND", "OR", "XOR", "NOT", "LATCH", "COUNT", "DELAY" };
-#define NOPS 7
+static const char *OPNAMES[] = { "AND", "OR", "XOR", "NOT", "LATCH", "COUNT", "DELAY", "SHIFT" };
+#define NOPS 8
 // rows: 0 all targets; 1..T timers; T+1 add a timer; then the logic pieces; last: add a piece
 static void wire_frame(const Pad *p) {
   int d, T = L.ntimer, nr = 3 + T + L.nlogic, addT = T + 1, firstL = T + 2, addL = nr - 1;
@@ -841,7 +841,7 @@ static void wire_frame(const Pad *p) {
         FoldLogic *q = &L.logic[wrow - firstL];
         if (wfield == 0) q->out = (uint8_t)sig_cycle(q->out, st, 0);
         else if (wfield == 1) q->op = (uint8_t)((q->op + st + NOPS) % NOPS);
-        else if (wfield == 2) { int mx = q->op == FL_DELAY ? 8 : 99, n = q->count + st; q->count = (uint8_t)(n < 1 ? 1 : n > mx ? mx : n); }
+        else if (wfield == 2) { int mx = q->op == FL_DELAY || q->op == FL_SHIFT ? 8 : 99, n = q->count + st; q->count = (uint8_t)(n < 1 ? 1 : n > mx ? mx : n); }
         else q->in[wfield - 3] = (uint8_t)sig_cycle(q->in[wfield - 3], st, 1);
       }
     }
@@ -1538,9 +1538,14 @@ void app_draw(void) {
     for (int k = 0; k < L.nlogic && y < 400; k++, y += 22) {
       const FoldLogic *q = &L.logic[k]; int x = 70, sel = wrow == firstL + k;
       char fld[7][16];
-      snprintf(fld[0], 16, "%d =", q->out); snprintf(fld[1], 16, "%s", OPNAMES[q->op]);
-      if (q->op == FL_COUNT) snprintf(fld[2], 16, "%d OF", q->count); else if (q->op == FL_DELAY) snprintf(fld[2], 16, "%d BY", q->count); else snprintf(fld[2], 16, " ");
-      for (int i2 = 0; i2 < 4; i2++) { if (q->in[i2]) snprintf(fld[3 + i2], 16, "%d", q->in[i2]); else snprintf(fld[3 + i2], 16, "-"); }
+      if (q->op == FL_SHIFT && q->count > 1) snprintf(fld[0], 16, "%d-%d =", q->out, q->out + q->count - 1); else snprintf(fld[0], 16, "%d =", q->out);
+      snprintf(fld[1], 16, "%s", OPNAMES[q->op]);
+      if (q->op == FL_COUNT) snprintf(fld[2], 16, "%d OF", q->count); else if (q->op == FL_DELAY) snprintf(fld[2], 16, "%d BY", q->count);
+      else if (q->op == FL_SHIFT) snprintf(fld[2], 16, "%d LONG", q->count); else snprintf(fld[2], 16, " ");
+      for (int i2 = 0; i2 < 4; i2++) {           // a shift register's inputs: D the data, C the clock
+        const char *pre = q->op == FL_SHIFT ? (i2 == 0 ? "D " : i2 == 1 ? "C " : "") : "";
+        if (q->in[i2]) snprintf(fld[3 + i2], 16, "%s%d", pre, q->in[i2]); else snprintf(fld[3 + i2], 16, "%s-", pre);
+      }
       row(56, y, 540, sel, "");
       for (int f2 = 0; f2 < 7; f2++) { gfx_text5(x, y, 1, sel && f2 == wfield ? 0xffe070 : sel ? 0xe8ffd8 : C_TEXT, fld[f2]); x += gfx_text5_w(1, fld[f2]) + 14; }
     }

@@ -40,8 +40,10 @@ enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLAT
 // a tile: each time it changes a gate opens / shuts, a teleporter switches on / off, a one-way turns round. A signal's
 // links work cells: each change flips / shifts / hinges it (back and forth), turns it a quarter ('r'), or turns it while
 // on and back while off ('R').
-enum { FL_AND, FL_OR, FL_XOR, FL_NOT, FL_LATCH, FL_COUNT, FL_DELAY };   // latch: on once its input is (until input 2
-// resets it); count: on after n switch-ons; delay: its input as it was n moves ago (n = 1..8)
+enum { FL_AND, FL_OR, FL_XOR, FL_NOT, FL_LATCH, FL_COUNT, FL_DELAY, FL_SHIFT };   // latch: on once its input is (until
+// input 2 resets it); count: on after n switch-ons; delay: its input as it was n moves ago (n = 1..8); shift: a shift
+// register of n stages (1..8): each time input 2 (the clock) switches on, input 1 (the data) goes in; it sends n signals
+// in a row from out (out = the newest stage)
 typedef struct { uint8_t op, n, out, count; uint8_t in[4]; } FoldLogic;   // count = a counter's / delay's n
 // timers: a tick is on for one move every n moves; 'moves' is on once you have made n moves
 enum { FT_TICK, FT_MOVES };

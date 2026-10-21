@@ -185,6 +185,12 @@ int main(void) {
   CHECK("keypad: last move's number is wrong now", !fold_keypad(&g, CELL(0, 5, 2), 3) && !OPEN(6, 6));
   CHECK("keypad: the live code works", fold_keypad(&g, CELL(0, 5, 2), 4) && OPEN(6, 6));
   fold_undo(&g); CHECK("keypad: undo the entry", !OPEN(6, 6) && OPEN(4, 6));
+  // ---- shift register: data = 3 moves made, clock = every 2nd move; 3 stages from signal 10 ----
+  load(level("########\n#......#\n#.p....#\n#......#\n#......#\n#......#\n#.|.|.|#\n########\n"
+             "input 1 moves 3\ninput 2 tick 2\nlogic 10 shift 3 1 2\ndrive 0 f 2 6 10\ndrive 0 f 4 6 11\ndrive 0 f 6 6 12\n"));
+  moves("rlrlrl"); CHECK("shift: 0, then 1, then 1 shifted in", OPEN(2, 6) && OPEN(4, 6) && !OPEN(6, 6) && g.lstate[0] == 3);
+  { char t[240]; fold_describe(&g, CELL(0, 4, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: a shift register's stage", strstr(t, "CLOCK BEFORE THE LAST") != NULL); }
+  fold_undo(&g); fold_undo(&g); CHECK("shift: undone to one bit", OPEN(2, 6) && !OPEN(4, 6) && g.lstate[0] == 1);
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }
