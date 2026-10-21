@@ -45,9 +45,9 @@ static void read_pad(SDL_GameController *c, Pad *p) {
     { SDL_CONTROLLER_BUTTON_A, PAD_A }, { SDL_CONTROLLER_BUTTON_B, PAD_B }, { SDL_CONTROLLER_BUTTON_X, PAD_X },
     { SDL_CONTROLLER_BUTTON_Y, PAD_Y }, { SDL_CONTROLLER_BUTTON_START, PAD_START }, { SDL_CONTROLLER_BUTTON_BACK, PAD_BACK },
     { SDL_CONTROLLER_BUTTON_RIGHTSTICK, PAD_RS }, { SDL_CONTROLLER_BUTTON_LEFTSTICK, PAD_LS },
-    { SDL_CONTROLLER_BUTTON_LEFTSHOULDER, PAD_ZOUT }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PAD_ZIN } };   // white / black: zoom
+    { SDL_CONTROLLER_BUTTON_LEFTSHOULDER, PAD_WHITE }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PAD_BLACK } };   // white / black
   for (unsigned i = 0; i < sizeof M / sizeof M[0]; i++) if (SDL_GameControllerGetButton(c, M[i].b)) p->held |= M[i].bit;
-  // the triggers are L and R (the Duke's white / black come through as the shoulder buttons: zoom out / in)
+  // the triggers are L and R (the Duke's white / black come through as the shoulder buttons)
   if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 12000) p->held |= PAD_L;
   if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000) p->held |= PAD_R;
 }

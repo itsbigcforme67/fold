@@ -11,13 +11,19 @@ def rs(x, y, n, after=10): L.append("rstick %g %g %d" % (x, y, int(n * 1.5))); w
 def zoom(y, n, after=10): L.append("zoom %g %d" % (y, int(n * 1.5))); w(after)
 def shot(name): L.append("shot build/shots/c_%s.ppm" % name); shots.append(name)
 item = 1
+N = 8
 def cap(t): L.append("caption " + t); w(18 if t else 0)
-def sel(k):
+def sel(k):                      # tile picking: the D-pad over the room's right edge onto the palette (4 a row), A takes it
     global item
-    while item != k:
-        fwd = (k - item) % 18
-        if fwd <= 9: L.append("rstick 1 0 1"); w(5); item = (item + 1) % 18     # the right stick picks tiles
-        else: L.append("rstick -1 0 1"); w(5); item = (item - 1) % 18
+    if item == k: return
+    row0 = pos[1]
+    while pos[0] < N - 1: b("RIGHT", 7); pos[0] += 1
+    b("RIGHT", 10)                                   # onto the palette, at the current tile
+    while item // 4 > k // 4: b("UP", 6); item -= 4         # up first, down last: the last row has only 2 tiles
+    while item % 4 < k % 4: b("RIGHT", 6); item += 1
+    while item % 4 > k % 4: b("LEFT", 6); item -= 1
+    while item // 4 < k // 4: b("DOWN", 6); item += 4
+    b("A", 10)                                       # back to the room where the cursor was
 pos = [3, 3]
 def go(x, y):                    # the cell editor's cursor moves with the D-pad
     while pos[0] < x: b("RIGHT", 7); pos[0] += 1
@@ -37,7 +43,7 @@ b("A", 22)                      # third cell, hanging over the edge
 shot("cells"); w(45)
 cap("RIGHT STICK: ORBIT"); rs(0.7, 0, 30); rs(-0.7, 0, 45); rs(0, -0.6, 15); rs(0, 0.6, 15)   # right stick: orbit
 cap("L / R: TURN THE VIEW"); b("L", 25); b("R", 25)          # L / R: quarter turns
-cap("BLACK / WHITE: ZOOM"); L.append("hold ZIN 30"); w(10); L.append("hold ZOUT 30"); w(10)   # Black / White: zoom in / out
+cap("BLACK / WHITE: ZOOM"); L.append("hold BLACK 30"); w(10); L.append("hold WHITE 30"); w(10)   # Black / White: zoom in / out
 shot("camera"); w(45)
 cap("X: CELL SETTINGS"); b("X", 25)                      # cell settings
 b("RIGHT", 18); b("RIGHT", 18); b("DOWN", 15); b("UP", 12); b("LEFT", 14); b("LEFT", 20)
@@ -46,8 +52,8 @@ b("B", 15)
 # ---- the cell editor
 cap("Y: CELL EDITOR (AS IT LIES ON SCREEN)")
 b("Y", 30)
-cap("L / R: TURN THE CELL"); b("L", 30); pos[:] = [3, 4]   # opened at turn 3; the cursor keeps its tile
-cap("RIGHT STICK: PICK A TILE")
+cap("RIGHT STICK: TURN THE CELL"); L.append("rstick -1 0 1"); w(30); pos[:] = [3, 4]   # opened at turn 3; the cursor keeps its tile
+cap("D-PAD RIGHT, ONTO THE TILES: PICK ONE")
 put(5, 2, 5)                    # player
 put(2, 3, 3); put(3, 3, 2)      # a box under a target...
 cap("X: TILE SETTINGS"); b("X", 20); b("RIGHT", 25); w(40); b("B", 15)   # ...that sends signal 1 while a box is on it
@@ -85,7 +91,7 @@ w(25); shot("wiring"); w(45)
 b("B", 20)
 # ---- back in: the gate and the light follow the AND
 b("Y", 25)
-b("L", 20); pos[:] = [4, 0]     # opened at turn 3 again; the cursor (left at screen 7,4) keeps its tile through the turn
+L.append("rstick -1 0 1"); w(20); pos[:] = [4, 0]     # opened at turn 3 again; the cursor (left at screen 7,4) keeps its tile through the turn
 cap("THE GATE OPENS WHEN THE LIGHT IS ON"); go(6, 4); b("X", 20)            # the gate's settings
 for _ in range(3): b("RIGHT", 10)   # worked by signal 3
 w(20); shot("gate"); w(45)

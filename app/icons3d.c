@@ -337,3 +337,27 @@ void icons_stick(int x, int y, int w, int h) {
 void icons_dpad(int x, int y, int w, int h) { panel(1, x, y, w, h, moving(dpX) || moving(dpY) || moving(curX) || moving(curY), 0, draw_dpad); }
 void icons_buttons(int x, int y, int w, int h) { panel(2, x, y, w, h, moving(press[0]) || moving(press[1]) || moving(press[2]) || moving(press[3]), 0, draw_buttons); }
 void icons_camera(int x, int y, int w, int h) { panel(3, x, y, w, h, moving(rsX) || moving(rsY), 1, draw_camera); }
+
+// ---- the compass: the world's axes as the level view sees them (dir: from the look point to the camera) ----------
+void icons_compass(int x, int y, int w, int h, Vec3 dir, Vec3 up) {
+  gfx_clip(x, y, w, h); gfx_zclear_rect(x, y, w, h); gfx_fog(0, 1e9f, 2e9f);
+  gfx_view_offset(x + w / 2 - GW / 2, y + h / 2 - GH / 2);
+  float l = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) + 1e-9f, dist = 12, span = 3.4f;
+  eye = v3f(dir.x / l * dist, dir.y / l * dist, dir.z / l * dist);
+  gfx_camera(mat_mul(mat_perspective(2 * atanf(span * GH / w / 2 / dist), (float)GW / GH, 0.5f, 100.0f), mat_lookat(eye, v3f(0, 0, 0), up)));
+  static const uint32_t C[3] = { 0xe84848, 0x58d838, 0x4878f0 };
+  static const char *N3[3] = { "X", "Y", "Z" };
+  for (int k = 0; k < 3; k++) {
+    Xf a = xf(v3f(0, 0, 0));
+    if (k == 1) a = rot(a, 2, 90); else if (k == 2) a = rot(a, 1, -90);
+    box(&a, 0.55f, 0, 0, 1.1f, 0.12f, 0.12f, C[k]);                 // the shaft, then the head
+    Xf hd = a; hd.t = P(&a, 1.05f, 0, -0.06f); wedge(&hd, 0.45f, 0.22f, 0.12f, C[k]);
+    box(&a, -0.55f, 0, 0, 1.1f, 0.07f, 0.07f, 0x3a3f3a);            // the minus side, thin and grey
+  }
+  Xf o = xf(v3f(0, 0, -0.1f)); cyl(&o, 0.16f, 0, 0.2f, 0xd8d8d0, 0xf0f0e8);
+  for (int k = 0; k < 3; k++) {                                     // the letters past the heads
+    Vec3 q = v3f(k == 0 ? 1.85f : 0, k == 1 ? 1.85f : 0, k == 2 ? 1.85f : 0); float sx, sy;
+    if (gfx_project(q, &sx, &sy)) gfx_text5((int)sx - 2, (int)sy - 3, 1, C[k], N3[k]);
+  }
+  done();
+}

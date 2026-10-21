@@ -44,16 +44,24 @@ disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the te
 
 Level view: the D-pad moves the cursor along the working plane; the left stick rolls the plane over the cursor cell's
 edge, round the shape, and the camera rolls with it (the new cell is seen face up, four rolls one way come back).
-Right stick looks round (up / down inverted), Black / White zoom in / out (Back + right stick too), the triggers
-(L / R) turn the view a quarter turn, clicking the left stick swings round to the other side of the cell. A and B
-work on the side facing you: A places a cell, or a room on an empty back (the checkerboard); B clears a back room to
-nothing, or removes the cell (from its front or an empty back). Y opens the side's room in the cell editor (an empty
-back: "A adds one"), X the cell's settings, Start the menu, clicking the right stick shows the VMX window. Holding
-Back + Start shows the frame rate in the corner.
+White / Black raise the cursor a layer towards you / drop it one away. The right stick orbits freely, over the top and
+underneath (up / down inverted); Back + right stick zooms; the triggers (L / R) turn the view a quarter turn; clicking
+the left stick swings round to the other side of the cell. A and B work on the side you are looking at: A places a
+cell, or a room on an empty side (the checkerboard); B clears a back room to nothing, or removes the cell (from its
+front or an empty back). Y opens the side's room in the cell editor (an empty side: "A adds one"), X the cell's
+settings, Start the menu, clicking the right stick shows the VMX window. A compass (top left) shows the world's axes.
+Holding Back + Start shows the frame rate in the corner.
 
-Cell editor: opens turned the way the cell lies on screen in the level view. The D-pad moves the cursor (past the edge
-it walks into the next cell), the left stick jumps a whole cell, the right stick picks a tile, L / R turn the cell a
-quarter turn, A places, B makes floor, X the tile's settings (X or B closes them), Y back to the level.
+Cell editor: opens turned the way the cell lies on screen in the level view. The D-pad moves the cursor: past the
+right edge onto the tile palette (there the D-pad picks, A takes the tile, B or left past the first column goes
+back), past the other edges into the next cell. The left stick jumps a whole cell; White / Black go to the room a
+layer above / below; the right stick, left / right, turns the room a quarter turn. A places, B makes floor, X the
+tile's settings (X or B closes them), Y back to the level. Under the palette, the whole level turns slowly, the room
+being edited outlined in yellow.
+
+Cell settings (X): the cell's move in play (flip, turn, shift, hinge) and its signal, and layout tools for the side
+being edited: mirror left / right, mirror top / bottom, turn a quarter, copy, paste (as the room lies on screen;
+one-way arrows turn with it, edge doorways are matched up with the next cells again).
 
 On the PC: keys as before, plus - / = zoom, G the left stick click; a modern pad's shoulder buttons zoom.
 

@@ -19,7 +19,7 @@ static void shot(const char *f) {
   fclose(o);
 }
 static unsigned bit(const char *w) {
-  static const char *names[] = { "UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "BACK", "RS", "LS", "ZIN", "ZOUT" };
+  static const char *names[] = { "UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "BACK", "RS", "LS", "BLACK", "WHITE" };
   for (int i = 0; i < 16; i++) if (!strcmp(w, names[i])) return 1u << i;
   return 0;
 }

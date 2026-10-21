@@ -61,10 +61,11 @@ static int flipT, flipN[3], flipR[3];   // swinging round to the other side: the
 static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
-static int rf, rrot, rx = 3, ry = 3, item = 1;
+static int rf, rrot, rx = 3, ry = 3, item = 1, inPal, palFrom;   // inPal: the cursor is on the tile palette
 static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK", "GRATE", "SENSOR", "WALL GATE", "LIGHT" };
 #define NITEMS 18
 // settings / menu
+static int propFace, propRot;   // the side the cell settings' layout tools work on, and its turn on screen
 static int prow, mrow, fileIx, vmxWin = 0, propSq, propsBack = M_SHAPE, trow, tcell, wrow, wfield;
 // playtest
 static FoldLevel PL; static FoldGame G; static int popT, wonT, holdB; static const char *popWord;
@@ -283,6 +284,10 @@ static void view_axes(Vec3 *r, Vec3 *u) {        // the shown screen right / up,
   *r = v3f(vr.x * c + vu.x * s, vr.y * c + vu.y * s, vr.z * c + vu.z * s);
   *u = v3f(vu.x * c - vr.x * s, vu.y * c - vr.y * s, vu.z * c - vr.z * s);
 }
+static void plane_axes(Vec3 *r, Vec3 *u) {       // screen right / up as they lie on the plane: past the top or
+  view_axes(r, u);                                // underneath, screen up runs the other way along it
+  if (sinf(pitch) < 0) *u = v3f(-u->x, -u->y, -u->z);
+}
 static void camera_reset(void) {
   int n[3] = { 0, 0, 1 }, r[3] = { 1, 0, 0 }, u[3] = { 0, 1, 0 };
   memcpy(Fn, n, sizeof n); memcpy(Fr, r, sizeof r); memcpy(Fu, u, sizeof u);
@@ -305,7 +310,7 @@ static void camera(void) {
 // screen direction sd (0 up 1 right 2 down 3 left) as one of the frame's in-plane axes: the one nearest to that
 // screen direction as shown (the look round can turn the view a long way)
 static void plane_dir(int sd, int out[3]) {
-  Vec3 r, u; view_axes(&r, &u);
+  Vec3 r, u; plane_axes(&r, &u);
   Vec3 want = sd == 0 ? u : sd == 1 ? r : sd == 2 ? v3f(-u.x, -u.y, -u.z) : v3f(-r.x, -r.y, -r.z);
   const int *cand[2] = { Fr, Fu }; float best = -1e9f;
   for (int k = 0; k < 4; k++) {
@@ -314,7 +319,10 @@ static void plane_dir(int sd, int out[3]) {
     if (d > best) { best = d; for (int i = 0; i < 3; i++) out[i] = sg * a[i]; }
   }
 }
-static void facing_normal(int nc[3]) { memcpy(nc, Fn, sizeof Fn); }   // the cursor plane's normal on your side
+static void facing_normal(int nc[3]) {   // the cursor plane's normal on the side you are looking from
+  Vec3 c = cur_centre(); float d = (eye.x - c.x) * Fn[0] + (eye.y - c.y) * Fn[1] + (eye.z - c.z) * Fn[2];
+  for (int i = 0; i < 3; i++) nc[i] = d < 0 ? -Fn[i] : Fn[i];
+}
 static int sq_face_toward_eye(int i) {   // which side of square i faces the camera
   const FoldSquare *q = &L.sq[i];
   Vec3 c = v3f(q->o[0] + (q->u[0] + q->v[0]) * 0.5f, q->o[1] + (q->u[1] + q->v[1]) * 0.5f, q->o[2] + (q->u[2] + q->v[2]) * 0.5f);
@@ -354,7 +362,7 @@ static void turn_view(int dir) {                // L / R: a quarter turn of the 
 static int open_rot(int f) {
   const FoldSquare *q = &L.sq[f >> 1]; int sg = f & 1 ? -1 : 1;
   Vec3 ux = v3f(sg * q->u[0], sg * q->u[1], sg * q->u[2]), uy = v3f(q->v[0], q->v[1], q->v[2]), r, u;
-  view_axes(&r, &u);
+  plane_axes(&r, &u);
   int best = 0; float bs = -1e9f;
   for (int k = 0; k < 4; k++) {
     int x0, y0, x1, y1, x2, y2;
@@ -379,10 +387,11 @@ static void shape_frame(const Pad *p) {
   if (pressed(p, PAD_LS) && !flipT) flip_side();
   if (p->held & PAD_BACK) { dist *= 1 + p->ry * 0.04f; if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20; }   // BACK + right stick: zoom
   else { orbit += p->rx * 0.06f; pitch += p->ry * 0.05f; }   // right stick: look round (up / down inverted, owner)
-  if (p->held & PAD_ZIN) dist /= 1.04f;                       // Black / White: zoom in / out
-  if (p->held & PAD_ZOUT) dist *= 1.04f;
-  if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20;
-  if (pitch > 1.5f) pitch = 1.5f; if (pitch < 0.15f) pitch = 0.15f;
+  if (pressed(p, PAD_WHITE) || pressed(p, PAD_BLACK)) {   // White / Black: raise the cursor a layer towards you / drop it
+    int nc[3]; facing_normal(nc); int sg = pressed(p, PAD_WHITE) ? 1 : -1;
+    for (int k = 0; k < 3; k++) co[k] += sg * nc[k];
+  }
+  if (pitch > 2 * PI) pitch -= 2 * PI; if (pitch < 0) pitch += 2 * PI;   // free: over the top and underneath
   int i = find_sq(co, ce1, ce2);
   // A and B work on the side of the cell facing you: A places a cell, or a room on an empty back (the
   // checkerboard); B clears a back room to nothing again, or removes the cell (from its front or an empty back)
@@ -400,7 +409,7 @@ static void shape_frame(const Pad *p) {
     if (!has) say("NO ROOM HERE: A ADDS ONE");
     else { rf = f; rrot = open_rot(rf); mode = M_ROOM; }
   }
-  if (pressed(p, PAD_X) && i >= 0) { propSq = i; prow = 0; propsBack = M_SHAPE; mode = M_PROPS; }   // X: the cell's settings
+  if (pressed(p, PAD_X) && i >= 0) { propSq = i; propFace = f; propRot = open_rot(f); prow = 0; propsBack = M_SHAPE; mode = M_PROPS; }   // X: the cell's settings
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
   if (pressed(p, PAD_RS)) vmxWin ^= 1;        // right stick click: the VMX pops up in the middle / goes away
 }
@@ -418,6 +427,12 @@ static int go_room(int c, int sd) {           // step from cell c in screen dire
   rf = f1; rrot = (d1 - sd) & 3;
   fold_to_screen(c1 % N, (c1 / N) % N, rrot, &rx, &ry);
   return 1;
+}
+static void sync_edge(int c) {                // an edge tile's doorway opens (or closes) on both sides
+  int x = c % N, y = (c / N) % N;
+  if (!(x == 0 || y == 0 || x == N - 1 || y == N - 1) || ((x == 0 || x == N - 1) && (y == 0 || y == N - 1))) return;
+  int d = y == 0 ? 0 : x == N - 1 ? 1 : y == N - 1 ? 2 : 3, d1, m = fold_step(&S, c, d, &d1);
+  if (m >= 0 && (sides[(m / NN) >> 1] >> ((m / NN) & 1) & 1)) { L.wall[m] = L.wall[c]; if (L.wall[m]) { L.box[m] = L.target[m] = L.btn[m] = L.kind[m] = L.aux[m] = 0; } }
 }
 static void paint(int c, int what) {
   int x = c % N, y = (c / N) % N, edge = x == 0 || y == 0 || x == N - 1 || y == N - 1, corner = (x == 0 || x == N - 1) && (y == 0 || y == N - 1);
@@ -477,34 +492,53 @@ static void paint(int c, int what) {
       break;
     }
   }
-  if (edge && !corner) {                      // a doorway opens (or closes) on both sides
-    int d = y == 0 ? 0 : x == N - 1 ? 1 : y == N - 1 ? 2 : 3, d1, m = fold_step(&S, c, d, &d1);
-    if (m >= 0 && (sides[(m / NN) >> 1] >> ((m / NN) & 1) & 1)) { L.wall[m] = L.wall[c]; if (L.wall[m]) { L.box[m] = L.target[m] = L.btn[m] = L.kind[m] = L.aux[m] = 0; } }
-  }
+  if (edge && !corner) sync_edge(c);
 }
 static void room_turn(int dir) {             // turn the room on screen, the cursor staying on its tile
   int c = screen_to_cell(rx, ry);
   rrot = (rrot + (dir > 0 ? 3 : 1)) & 3;   // R: clockwise
   fold_to_screen(c % N, (c / N) % N, rrot, &rx, &ry);
 }
+static void room_layer(int dir) {            // to the same side of the cell stacked one above (towards you) or below
+  const FoldSquare *q = &L.sq[rf >> 1]; int sg = rf & 1 ? -1 : 1, o[3], u[3], v[3];
+  for (int k = 0; k < 3; k++) { o[k] = q->o[k] + dir * sg * q->n[k]; u[k] = q->u[k]; v[k] = q->v[k]; }
+  int j = find_sq(o, u, v), f;
+  if (j < 0) { say(dir > 0 ? "NO CELL ABOVE" : "NO CELL BELOW"); return; }
+  const FoldSquare *w = &L.sq[j];                 // the side facing the same way as this one
+  f = 2 * j + ((w->n[0] * q->n[0] + w->n[1] * q->n[1] + w->n[2] * q->n[2]) * sg < 0);
+  if (!(sides[j] >> (f & 1) & 1)) { say("NO ROOM ON THAT CELL'S SIDE"); return; }
+  rf = f;
+}
 static void room_frame(const Pad *p) {
   int d;
-  if (dpad_rep(p, &d)) {                      // the D-pad moves the cursor (off the edge: into the next cell)
-    int sd = PADDIR[d], nx = rx + (int)SX[sd], ny = ry + (int)SY[sd];
+  if (inPal) {                                // on the tile palette (4 a row): the D-pad picks, A takes it, B goes back
+    if (dpad_rep(p, &d)) {
+      int sd = PADDIR[d];
+      if (sd == 1 && item + 1 < NITEMS && (item + 1) % 4) item++;
+      else if (sd == 3) { if (item % 4) item--; else inPal = 0; }    // left of the first column: back to the room
+      else if (sd == 0 && item >= 4) item -= 4; else if (sd == 2 && item + 4 < NITEMS) item += 4;
+    }
+    if (pressed(p, PAD_A)) { inPal = 0; say(ITEMS[item]); }
+    if (pressed(p, PAD_B)) { inPal = 0; item = palFrom; }
+    if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
+    return;
+  }
+  if (dpad_rep(p, &d)) {                      // the D-pad moves the cursor: off the right edge onto the tile palette,
+    int sd = PADDIR[d], nx = rx + (int)SX[sd], ny = ry + (int)SY[sd];   // off the others into the next cell
     if (nx >= 0 && ny >= 0 && nx < N && ny < N) { rx = nx; ry = ny; }
+    else if (sd == 1) { inPal = 1; palFrom = item; }
     else go_room(screen_to_cell(rx, ry), sd);
   }
   if (stick_rep(p->lx, p->ly, &d)) {          // the left stick jumps a whole cell: from the edge tile that way
     int sd = PADDIR[d], ex = sd == 1 ? N - 1 : sd == 3 ? 0 : rx, ey = sd == 2 ? N - 1 : sd == 0 ? 0 : ry;
     if (!go_room(screen_to_cell(ex, ey), sd)) say("NO CELL THAT WAY");
   }
-  if (pressed(p, PAD_L)) room_turn(-1);       // L / R: a quarter turn of the room on screen
-  if (pressed(p, PAD_R)) room_turn(1);
-  if (rstick_rep(p->rx, p->ry, &d)) {         // the right stick moves round the tile palette (4 a row)
+  if (rstick_rep(p->rx, p->ry, &d)) {         // the right stick, left / right: a quarter turn of the room on screen
     int sd = PADDIR[d];
-    if (sd == 1) item = (item + 1) % NITEMS; else if (sd == 3) item = (item + NITEMS - 1) % NITEMS;
-    else if (sd == 0 && item >= 4) item -= 4; else if (sd == 2 && item + 4 < NITEMS) item += 4;
+    if (sd == 1) room_turn(1); else if (sd == 3) room_turn(-1);
   }
+  if (pressed(p, PAD_WHITE)) room_layer(1);   // White / Black: the room a layer above / below (out of / into the screen)
+  if (pressed(p, PAD_BLACK)) room_layer(-1);
   if (pressed(p, PAD_A)) paint(screen_to_cell(rx, ry), item);
   if (pressed(p, PAD_B)) paint(screen_to_cell(rx, ry), 1);
   if (pressed(p, PAD_Y)) mode = M_SHAPE;     // Y: back to the level
@@ -536,15 +570,57 @@ static int func_ok(int i, const FoldAct *a) {   // a shift / hinge must not land
   tmp[i] = fold_geo_pose(L.sq[i], a);
   return !fold_overlap(tmp, L.nsq);
 }
-enum { P_MOVE, P_SIGNAL, P_TURNMODE, P_DELETE };
+enum { P_MOVE, P_SIGNAL, P_TURNMODE, P_MIRX, P_MIRY, P_TURNLAY, P_COPY, P_PASTE, P_DELETE };
+// layout tools (editing only, not the cell's moves in play): mirror, turn, copy and paste a side's room, as it lies
+// on screen (propRot: the editor's turn, or the level view's when opened from there)
+static struct { uint8_t a[8][NN]; int player, ok; } clip;
+static uint8_t *layer(int k) { uint8_t *t[8] = { L.wall, L.target, L.box, L.btn, L.kind, L.aux, L.drv, L.txt }; return t[k]; }
+static int face_cell(int f, int rot, int sx, int sy) {   // the tile of side f shown at screen (sx, sy)
+  for (int c = f * NN; c < (f + 1) * NN; c++) { int x, y; fold_to_screen(c % N, (c / N) % N, rot, &x, &y); if (x == sx && y == sy) return c; }
+  return f * NN;
+}
+static void layout_read(int f, int rot, uint8_t a[8][NN], int *player) {   // side f's tiles in screen order
+  *player = -1;
+  for (int sy = 0; sy < N; sy++) for (int sx = 0; sx < N; sx++) {
+    int c = face_cell(f, rot, sx, sy);
+    for (int k = 0; k < 8; k++) a[k][sy * N + sx] = layer(k)[c];
+    if (L.kind[c] == FK_ONEWAY) a[5][sy * N + sx] = (uint8_t)((L.aux[c] - rot) & 3);   // a one-way's way, on screen
+    if (c == L.player) *player = sy * N + sx;
+  }
+}
+static void layout_write(int f, int rot, uint8_t a[8][NN], int player) {
+  if (L.player / NN == f) L.player = -1;
+  for (int sy = 0; sy < N; sy++) for (int sx = 0; sx < N; sx++) {
+    int c = face_cell(f, rot, sx, sy), i = sy * N + sx;
+    for (int k = 0; k < 8; k++) layer(k)[c] = a[k][i];
+    if (L.kind[c] == FK_ONEWAY) L.aux[c] = (uint8_t)((a[5][i] + rot) & 3);
+    if (i == player && !L.wall[c]) L.player = c;
+  }
+  for (int c = f * NN; c < (f + 1) * NN; c++) sync_edge(c);
+}
+static void layout_op(int op) {                 // 0 mirror left / right, 1 mirror up / down, 2 a quarter turn clockwise
+  uint8_t a[8][NN], b[8][NN]; int pl, npl = -1;
+  layout_read(propFace, propRot, a, &pl);
+  for (int y = 0; y < N; y++) for (int x = 0; x < N; x++) {
+    int sx = op == 0 ? N - 1 - x : op == 1 ? x : y, sy = op == 0 ? y : op == 1 ? N - 1 - y : N - 1 - x, i = y * N + x, j = sy * N + sx;
+    for (int k = 0; k < 8; k++) b[k][i] = a[k][j];
+    if (b[4][i] == FK_ONEWAY) { int d = b[5][i]; b[5][i] = (uint8_t)(op == 0 ? (d == 1 ? 3 : d == 3 ? 1 : d) : op == 1 ? (d == 0 ? 2 : d == 2 ? 0 : d) : (d + 1) & 3); }
+    if (j == pl) npl = i;
+  }
+  layout_write(propFace, propRot, b, npl);
+}
+
 static int prop_rows(int i, int *rows) {      // which rows the cell settings show
   int n = 0; rows[n++] = P_MOVE; rows[n++] = P_SIGNAL;
   if (func[i].kind == 'r' || func[i].kind == 'R') rows[n++] = P_TURNMODE;
+  if (propFace >> 1 == i && (sides[i] >> (propFace & 1) & 1)) {   // the layout tools, for the side with a room
+    rows[n++] = P_MIRX; rows[n++] = P_MIRY; rows[n++] = P_TURNLAY; rows[n++] = P_COPY; if (clip.ok) rows[n++] = P_PASTE;
+  }
   rows[n++] = P_DELETE;
   return n;
 }
 static void props_frame(const Pad *p) {
-  int d, i = propSq, rows[8], nr = prop_rows(i, rows);
+  int d, i = propSq, rows[12], nr = prop_rows(i, rows);
   if (prow >= nr) prow = nr - 1;
   if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
     int sd = PADDIR[d];
@@ -562,6 +638,13 @@ static void props_frame(const Pad *p) {
     }
   }
   if (pressed(p, PAD_A) && rows[prow] == P_DELETE) { remove_sq(i); mode = M_SHAPE; say("CELL REMOVED"); return; }
+  if (pressed(p, PAD_A)) switch (rows[prow]) {
+    case P_MIRX: layout_op(0); say("LAYOUT MIRRORED LEFT TO RIGHT"); break;
+    case P_MIRY: layout_op(1); say("LAYOUT MIRRORED TOP TO BOTTOM"); break;
+    case P_TURNLAY: layout_op(2); say("LAYOUT TURNED"); break;
+    case P_COPY: layout_read(propFace, propRot, clip.a, &clip.player); clip.ok = 1; say("LAYOUT COPIED"); break;
+    case P_PASTE: layout_write(propFace, propRot, clip.a, clip.player); say("LAYOUT PASTED"); break;
+  }
   if (pressed(p, PAD_B) || pressed(p, PAD_X)) mode = propsBack;
 }
 
@@ -580,7 +663,7 @@ static int tile_rows(int c, int *rows) {
 }
 static void tile_frame(const Pad *p) {
   int d, c = tcell, rows[8], nr = tile_rows(c, rows);
-  if (nr == 1) { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }   // nothing to set: the cell's
+  if (nr == 1) { propSq = rf >> 1; propFace = rf; propRot = rrot; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }   // nothing to set: the cell's
   if (trow >= nr) trow = nr - 1;
   if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
     int sd = PADDIR[d];
@@ -594,7 +677,7 @@ static void tile_frame(const Pad *p) {
       else if (r == T_LOOKS) L.aux[c] ^= 0x40;
     }
   }
-  if (pressed(p, PAD_A) && rows[trow] == T_CELL) { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }
+  if (pressed(p, PAD_A) && rows[trow] == T_CELL) { propSq = rf >> 1; propFace = rf; propRot = rrot; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }
   if (pressed(p, PAD_B) || pressed(p, PAD_X)) mode = M_ROOM;
 }
 
@@ -1027,6 +1110,34 @@ static uint32_t item_colour(int k) {          // a palette icon's colour (the ti
                case 14: return 0xa0a8a0; case 17: return 0xfff27a; }
   return 0x7dff3a;
 }
+// the whole level, small and turning slowly, under the tile palette: where the room being edited sits (yellow)
+static void mini_level(int x, int y, int w, int h) {
+  if (!L.nsq) return;
+  float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
+  for (int i = 0; i < L.nsq; i++) for (int k = 0; k < 3; k++) {
+    float a = L.sq[i].o[k], b = a + L.sq[i].u[k] + L.sq[i].v[k];
+    if (a < lo[k]) lo[k] = a; if (b < lo[k]) lo[k] = b; if (a > hi[k]) hi[k] = a; if (b > hi[k]) hi[k] = b;
+  }
+  Vec3 c = v3f((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
+  float rad = 0.8f; for (int k = 0; k < 3; k++) if ((hi[k] - lo[k]) / 2 + 0.5f > rad) rad = (hi[k] - lo[k]) / 2 + 0.5f;
+  float yaw = t * 0.012f, dist = rad * 4, span = rad * 2.4f;
+  Vec3 e = v3f(c.x + dist * 0.8f * cosf(yaw), c.y + dist * 0.8f * sinf(yaw), c.z + dist * 0.6f);
+  gfx_clip(x, y, w, h); gfx_zclear_rect(x, y, w, h); gfx_fog(0, 1e9f, 2e9f);
+  gfx_view_offset(x + w / 2 - GW / 2, y + h / 2 - GH / 2);
+  gfx_camera(mat_mul(mat_perspective(2 * atanf(span * GH / w / 2 / dist), (float)GW / GH, 0.3f, 200.0f), mat_lookat(e, c, v3f(0, 0, 1))));
+  for (int i = 0; i < L.nsq; i++) {
+    const FoldSquare *q = &L.sq[i];
+    Vec3 o = v3f(q->o[0], q->o[1], q->o[2]), u = v3f(q->u[0], q->u[1], q->u[2]), v = v3f(q->v[0], q->v[1], q->v[2]);
+    Vec3 P4[4] = { o, vadd(o, u), vadd(vadd(o, u), v), vadd(o, v) };
+    Vec3 m = vadd(o, vsc(vadd(u, v), 0.5f));
+    float fd = (e.x - m.x) * q->n[0] + (e.y - m.y) * q->n[1] + (e.z - m.z) * q->n[2];
+    int side = fd < 0, f = 2 * i + side, room = sides[i] >> side & 1;   // the side facing the camera
+    uint32_t col = f == rf ? 0xf2e01c : room ? (side ? 0x2f8a1c : 0x52c41a) : 0x2a302a;
+    gfx_quad(P4, NULL, col, 1);
+    for (int k = 0; k < 4; k++) gfx_line3(P4[k], P4[(k + 1) & 3], i == rf >> 1 ? 0xf2e01c : 0x0c140c, i == rf >> 1 ? 2 : 1);   // this cell: outlined
+  }
+  gfx_clip(0, 0, 0, 0); gfx_view_offset(0, 0);
+}
 static void draw_room_editor(void) {
   memset(bits, 0, sizeof bits);
   vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, rf, rrot, L.player, &S, 0);
@@ -1036,19 +1147,22 @@ static void draw_room_editor(void) {
   gfx_panel(X0 - 12, Y0 - 40, 56 * S6 + 24, 56 * S6 + 52, s, C_HI);
   for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S6, Y0 + y * S6, S6, S6, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
   uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
-  for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 42 - w, Y0 + ry * 42 - w, 42 + 2 * w, 42 + 2 * w, cc);
+  if (!inPal) for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 42 - w, Y0 + ry * 42 - w, 42 + 2 * w, 42 + 2 * w, cc);
   // the tile palette: icons in a grid, the picked one lit up and named
   int px0 = 410, py0 = 22, cols = 4;
   gfx_panel(px0, py0, 216, 300, "TILES", C_HI);
   for (int k = 0; k < NITEMS; k++) {
     int bx = px0 + 14 + (k % cols) * 48, by = py0 + 44 + (k / cols) * 46;
     if (k == item) { gfx_rect(bx - 4, by - 4, 44, 44, 0x2f5a24); gfx_frame(bx - 4, by - 4, 44, 44, C_HI); }
+    if (k == item && inPal) for (int w = 0; w < 3; w++) gfx_frame(bx - 6 - w, by - 6 - w, 48 + 2 * w, 48 + 2 * w, (t >> 3) & 1 ? C_CURSOR : 0xffffff);
     const char **spr = vmx_icon(ITEMS[k]); uint32_t ic = item_colour(k);
     gfx_rect(bx, by, 36, 36, 0x0a120a);
     for (int j = 0; j < 7; j++) for (int i2 = 0; i2 < 7; i2++) if (spr[j][i2] == '#') gfx_rect(bx + 1 + i2 * 5, by + 1 + j * 5, 5, 5, ic);
   }
   gfx_text5(px0 + 14, py0 + 270, 2, C_HI, ITEMS[item]);
-  gfx_hint(px0 + 4, py0 + 312, "R-STICK", "PICK A TILE");
+  gfx_hint(px0 + 4, py0 + 312, "DPAD", inPal ? "PICK   A TAKE   B BACK" : "RIGHT: TO THE TILES");
+  gfx_dim(px0, 352, 216, 92, 0.5f); gfx_frame(px0, 352, 216, 92, 0x2f5a24);   // the whole level, small
+  mini_level(px0 + 2, 354, 212, 88);
 }
 // ---- the level view's layout (the owner's sketch, 2026-10-20): a row of tabs along the top, the green scene, and the
 // controls as pictures on brushed-metal panels in the bottom corners
@@ -1105,7 +1219,7 @@ void app_draw(void) {
   if (roomish) {
     draw_room_editor();
     top_bar("CELL EDITOR");
-    const char *h[] = { "DPAD", "MOVE", "A", "PLACE", "B", "FLOOR", "STICK", "NEXT CELL", "L R", "TURN", "X", "SETTINGS", "Y", "LEVEL" };
+    const char *h[] = { "DPAD", "MOVE", "A", "PLACE", "B", "FLOOR", "STICK", "NEXT CELL", "R-STICK", "TURN", "X", "SETTINGS", "Y", "LEVEL" };
     if (mode == M_ROOM) hints(h, 7);
   } else {
     if (!framesTried) load_frames();
@@ -1114,7 +1228,12 @@ void app_draw(void) {
     gfx_view_offset(0, 0);
     tab_row(mode == M_WIRE ? 2 : mode == M_MENU ? 3 : 0);
     snprintf(s, sizeof s, "%s   %d CELLS", L.name, L.nsq); gfx_text5(GW - 12 - gfx_text5_w(1, s), 44, 1, 0x7f8a78, s);
-    if (mode == M_SHAPE) level_controls();
+    if (mode == M_SHAPE) {
+      level_controls();
+      gfx_dim(8, 44, 100, 100, 0.35f);       // the compass, top left: which way the world's axes point
+      Vec3 up; { Vec3 r, u; view_axes(&r, &u); float cp = cosf(pitch), sp = sinf(pitch); up = v3f(u.x * sp + vn.x * cp, u.y * sp + vn.y * cp, u.z * sp + vn.z * cp); }
+      icons_compass(8, 44, 100, 100, v3f(eye.x - look.x, eye.y - look.y, eye.z - look.z), up);
+    }
     if (vmxWin) {                             // the VMX window: the cell under the cursor, as on the handheld
       static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
       int i = find_sq(co, ce1, ce2);
@@ -1124,7 +1243,7 @@ void app_draw(void) {
     }
   }
   if (mode == M_PROPS) {
-    int i = propSq, rows[8], nr = prop_rows(i, rows), h = 50 + nr * 26 + 30;
+    int i = propSq, rows[12], nr = prop_rows(i, rows), h = 50 + nr * 26 + 30;
     snprintf(s, sizeof s, "CELL %d SETTINGS", i);
     gfx_panel(120, 110, 400, h, s, C_HI);
     for (int k = 0; k < nr; k++) {
@@ -1133,6 +1252,11 @@ void app_draw(void) {
         case P_MOVE: snprintf(r, sizeof r, "MOVE: %s", FUNCS[func_index(&func[i])]); break;
         case P_SIGNAL: if (trig[i]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", trig[i]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
         case P_TURNMODE: snprintf(r, sizeof r, "TURNS: %s", func[i].kind == 'R' ? "WHILE ON, BACK WHEN OFF" : "A QUARTER EACH CHANGE"); break;
+        case P_MIRX: snprintf(r, sizeof r, "LAYOUT: MIRROR LEFT / RIGHT  (A)"); break;
+        case P_MIRY: snprintf(r, sizeof r, "LAYOUT: MIRROR TOP / BOTTOM  (A)"); break;
+        case P_TURNLAY: snprintf(r, sizeof r, "LAYOUT: TURN A QUARTER  (A)"); break;
+        case P_COPY: snprintf(r, sizeof r, "LAYOUT: COPY  (A)"); break;
+        case P_PASTE: snprintf(r, sizeof r, "LAYOUT: PASTE  (A)"); break;
         default: snprintf(r, sizeof r, "DELETE CELL  (A)");
       }
       row(140, 156 + k * 26, 370, k == prow, r);
