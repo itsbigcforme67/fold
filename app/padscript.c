@@ -7,8 +7,8 @@
 static char *text, *at;                   // the script, and the next line
 static Pad cur, after; static int left, haveAfter;   // the pad held for `left` more ticks, then `after` for one
 static unsigned bit(const char *w) {
-  static const char *names[] = { "UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "BACK", "RS", "LS" };
-  for (int i = 0; i < 14; i++) if (!strcmp(w, names[i])) return 1u << i;
+  static const char *names[] = { "UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "BACK", "RS", "LS", "ZIN", "ZOUT" };
+  for (int i = 0; i < 16; i++) if (!strcmp(w, names[i])) return 1u << i;
   return 0;
 }
 int padscript_open(const char *path) {

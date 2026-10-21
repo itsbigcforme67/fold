@@ -37,20 +37,20 @@ b("A", 22)                      # third cell, hanging over the edge
 shot("cells"); w(45)
 cap("RIGHT STICK: ORBIT"); rs(0.7, 0, 30); rs(-0.7, 0, 45); rs(0, -0.6, 15); rs(0, 0.6, 15)   # right stick: orbit
 cap("L / R: TURN THE VIEW"); b("L", 25); b("R", 25)          # L / R: quarter turns
-cap("BACK + RIGHT STICK: ZOOM"); zoom(-0.7, 25); zoom(0.7, 25)   # BACK + right stick: zoom
+cap("BLACK / WHITE: ZOOM"); L.append("hold ZIN 30"); w(10); L.append("hold ZOUT 30"); w(10)   # Black / White: zoom in / out
 shot("camera"); w(45)
-cap("Y: CELL SETTINGS"); b("Y", 25)                      # cell settings
+cap("X: CELL SETTINGS"); b("X", 25)                      # cell settings
 b("RIGHT", 18); b("RIGHT", 18); b("DOWN", 15); b("UP", 12); b("LEFT", 14); b("LEFT", 20)
 shot("cellset"); w(45)
 b("B", 15)
 # ---- the cell editor
-cap("X: CELL EDITOR (AS IT LIES ON SCREEN)")
-b("X", 30)
+cap("Y: CELL EDITOR (AS IT LIES ON SCREEN)")
+b("Y", 30)
 cap("L / R: TURN THE CELL"); b("L", 30); pos[:] = [3, 4]   # opened at turn 3; the cursor keeps its tile
 cap("RIGHT STICK: PICK A TILE")
 put(5, 2, 5)                    # player
 put(2, 3, 3); put(3, 3, 2)      # a box under a target...
-cap("Y: TILE SETTINGS"); b("Y", 20); b("RIGHT", 25); w(40); b("B", 15)   # ...that sends signal 1 while a box is on it
+cap("X: TILE SETTINGS"); b("X", 20); b("RIGHT", 25); w(40); b("B", 15)   # ...that sends signal 1 while a box is on it
 put(15, 5, 5)                   # a sensor (on while you stand on it)
 put(2, 4, 4)                    # the box to deliver
 put(11, 6, 4)                   # a gate (starts shut)
@@ -62,7 +62,7 @@ pos[:] = [0, 4]
 put(3, 3, 4)                    # the target, over the fold
 shot("cell1"); w(45)
 cap(""); st(-1, 0, 22); pos[:] = [7, 4]  # back
-b("X", 25)                      # level view
+b("Y", 25)                      # level view
 cap("CLICK RIGHT STICK: VMX"); b("RS", 40); b("RS", 15)        # right stick click: the VMX window
 # ---- the menu: every row, then wiring
 cap("START: MENU")
@@ -84,18 +84,18 @@ for _ in range(4): b("RIGHT", 10)           # ...and the latch (4)
 w(25); shot("wiring"); w(45)
 b("B", 20)
 # ---- back in: the gate and the light follow the AND
-b("X", 25)
+b("Y", 25)
 b("L", 20); pos[:] = [4, 0]     # opened at turn 3 again; the cursor (left at screen 7,4) keeps its tile through the turn
-cap("THE GATE OPENS WHEN THE LIGHT IS ON"); go(6, 4); b("Y", 20)            # the gate's settings
+cap("THE GATE OPENS WHEN THE LIGHT IS ON"); go(6, 4); b("X", 20)            # the gate's settings
 for _ in range(3): b("RIGHT", 10)   # worked by signal 3
 w(20); shot("gate"); w(45)
 b("B", 15)
-cap("THE LIGHT IS LIT BY THE AND"); go(6, 2); b("Y", 20)            # the light's settings
+cap("THE LIGHT IS LIT BY THE AND"); go(6, 2); b("X", 20)            # the light's settings
 b("DOWN", 12)                   # lit by: the AND (signal 5); the gate opens off the light's own signal 3
 for _ in range(5): b("RIGHT", 10)
 w(20); shot("light"); w(45)
 b("B", 15)
-b("X", 25)
+b("Y", 25)
 cap("PLAYTEST ON THE VMX"); b("START", 20); b("A", 30)      # PLAYTEST
 # ---- playing on the VMX
 for m in ["UP", "RIGHT", "UP"]: b(m, 12)  # box onto the target

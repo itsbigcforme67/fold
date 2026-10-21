@@ -44,15 +44,18 @@ disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the te
 
 Level view: the D-pad moves the cursor along the working plane; the left stick rolls the plane over the cursor cell's
 edge, round the shape, and the camera rolls with it (the new cell is seen face up, four rolls one way come back).
-Right stick looks round, Back + right stick zooms, L / R (the triggers, or White / Black) turn the view a quarter
-turn; clicking the left stick swings round to the other side of the cell. A and B work on the side facing you: A
-places a cell, or a room on an empty back (the checkerboard); B clears a back room to nothing, or removes the cell
-(from its front or an empty back). X opens the side's room in the cell editor (an empty back: "A adds one"), Y the
-cell's settings, Start the menu, clicking the right stick shows the VMX window. Holding Back + Start shows the frame rate in the corner.
+Right stick looks round (up / down inverted), Black / White zoom in / out (Back + right stick too), the triggers
+(L / R) turn the view a quarter turn, clicking the left stick swings round to the other side of the cell. A and B
+work on the side facing you: A places a cell, or a room on an empty back (the checkerboard); B clears a back room to
+nothing, or removes the cell (from its front or an empty back). Y opens the side's room in the cell editor (an empty
+back: "A adds one"), X the cell's settings, Start the menu, clicking the right stick shows the VMX window. Holding
+Back + Start shows the frame rate in the corner.
 
 Cell editor: opens turned the way the cell lies on screen in the level view. The D-pad moves the cursor (past the edge
 it walks into the next cell), the left stick jumps a whole cell, the right stick picks a tile, L / R turn the cell a
-quarter turn, A places, B makes floor, Y the tile's settings, X back to the level.
+quarter turn, A places, B makes floor, X the tile's settings (X or B closes them), Y back to the level.
+
+On the PC: keys as before, plus - / = zoom, G the left stick click; a modern pad's shoulder buttons zoom.
 
 ## Things found on the way
 

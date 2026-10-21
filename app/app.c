@@ -378,7 +378,10 @@ static void shape_frame(const Pad *p) {
   if (pressed(p, PAD_R)) turn_view(1);
   if (pressed(p, PAD_LS) && !flipT) flip_side();
   if (p->held & PAD_BACK) { dist *= 1 + p->ry * 0.04f; if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20; }   // BACK + right stick: zoom
-  else { orbit += p->rx * 0.06f; pitch -= p->ry * 0.05f; }   // right stick: look round
+  else { orbit += p->rx * 0.06f; pitch += p->ry * 0.05f; }   // right stick: look round (up / down inverted, owner)
+  if (p->held & PAD_ZIN) dist /= 1.04f;                       // Black / White: zoom in / out
+  if (p->held & PAD_ZOUT) dist *= 1.04f;
+  if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20;
   if (pitch > 1.5f) pitch = 1.5f; if (pitch < 0.15f) pitch = 0.15f;
   int i = find_sq(co, ce1, ce2);
   // A and B work on the side of the cell facing you: A places a cell, or a room on an empty back (the
@@ -393,11 +396,11 @@ static void shape_frame(const Pad *p) {
     if ((f & 1) && has) { clear_face(f); sides[i] &= ~2; say("BACK ROOM REMOVED"); }
     else { remove_sq(i); say("CELL REMOVED"); }
   }
-  if (pressed(p, PAD_X) && i >= 0) {
+  if (pressed(p, PAD_Y) && i >= 0) {          // Y: into the cell editor (X and Y swapped, owner)
     if (!has) say("NO ROOM HERE: A ADDS ONE");
     else { rf = f; rrot = open_rot(rf); mode = M_ROOM; }
   }
-  if (pressed(p, PAD_Y) && i >= 0) { propSq = i; prow = 0; propsBack = M_SHAPE; mode = M_PROPS; }
+  if (pressed(p, PAD_X) && i >= 0) { propSq = i; prow = 0; propsBack = M_SHAPE; mode = M_PROPS; }   // X: the cell's settings
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
   if (pressed(p, PAD_RS)) vmxWin ^= 1;        // right stick click: the VMX pops up in the middle / goes away
 }
@@ -434,7 +437,7 @@ static void paint(int c, int what) {
     case 8: if (c == L.player) return; L.wall[c] = 0; L.btn[c] = L.box[c] = L.target[c] = 0; L.kind[c] = L.kind[c] == FK_PIT ? FK_FLOOR : FK_PIT; break;
     case 11:                                  // gate: placed shut; A again opens / shuts it (how it starts); Y picks its button
       L.wall[c] = 0; L.btn[c] = 0;
-      if (L.kind[c] == FK_GATE && !(L.aux[c] & 0x40)) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0; say("Y ON A GATE PICKS ITS SIGNAL"); }
+      if (L.kind[c] == FK_GATE && !(L.aux[c] & 0x40)) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0; say("X ON A GATE PICKS ITS SIGNAL"); }
       break;
     case 14:                                  // grate: you can cross it, boxes can't
       L.wall[c] = 0; L.btn[c] = 0; L.box[c] = L.target[c] = 0; L.kind[c] = L.kind[c] == FK_GRATE ? FK_FLOOR : FK_GRATE; break;
@@ -455,11 +458,11 @@ static void paint(int c, int what) {
       if (c == L.player) return;
       L.wall[c] = 0; L.box[c] = L.target[c] = 0;
       if (L.kind[c] == FK_LIGHT) { L.kind[c] = FK_FLOOR; L.btn[c] = L.drv[c] = 0; }
-      else { L.kind[c] = FK_LIGHT; L.aux[c] = 0; if (!L.btn[c]) L.btn[c] = (uint8_t)next_signal(); say("Y ON IT: WHAT LIGHTS IT"); }
+      else { L.kind[c] = FK_LIGHT; L.aux[c] = 0; if (!L.btn[c]) L.btn[c] = (uint8_t)next_signal(); say("X ON IT: WHAT LIGHTS IT"); }
       break;
     case 16:                                  // a gate that looks like brick wall (a wall that comes and goes)
       L.wall[c] = 0; L.btn[c] = 0;
-      if (L.kind[c] == FK_GATE && (L.aux[c] & 0x40)) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0x40; say("Y ON IT PICKS ITS SIGNAL"); }
+      if (L.kind[c] == FK_GATE && (L.aux[c] & 0x40)) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0x40; say("X ON IT PICKS ITS SIGNAL"); }
       break;
     case 9: {                                 // teleporter: pairs with a lone pad if there is one; A again changes its pair
       L.wall[c] = 0; L.btn[c] = 0;
@@ -504,8 +507,8 @@ static void room_frame(const Pad *p) {
   }
   if (pressed(p, PAD_A)) paint(screen_to_cell(rx, ry), item);
   if (pressed(p, PAD_B)) paint(screen_to_cell(rx, ry), 1);
-  if (pressed(p, PAD_X)) mode = M_SHAPE;
-  if (pressed(p, PAD_Y)) {
+  if (pressed(p, PAD_Y)) mode = M_SHAPE;     // Y: back to the level
+  if (pressed(p, PAD_X)) {                    // X: this tile's settings
     tcell = screen_to_cell(rx, ry); trow = 0; mode = M_TILE;   // this tile's settings (from there, the cell's)
   }
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
@@ -559,7 +562,7 @@ static void props_frame(const Pad *p) {
     }
   }
   if (pressed(p, PAD_A) && rows[prow] == P_DELETE) { remove_sq(i); mode = M_SHAPE; say("CELL REMOVED"); return; }
-  if (pressed(p, PAD_B) || pressed(p, PAD_Y)) mode = propsBack;
+  if (pressed(p, PAD_B) || pressed(p, PAD_X)) mode = propsBack;
 }
 
 // ---- tile settings (Y on a tile in the cell editor) ---------------------------------------------------------------
@@ -592,7 +595,7 @@ static void tile_frame(const Pad *p) {
     }
   }
   if (pressed(p, PAD_A) && rows[trow] == T_CELL) { propSq = rf >> 1; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }
-  if (pressed(p, PAD_B) || pressed(p, PAD_Y)) mode = M_ROOM;
+  if (pressed(p, PAD_B) || pressed(p, PAD_X)) mode = M_ROOM;
 }
 
 // ---- wiring: the level-wide input and the logic pieces ------------------------------------------------------------
@@ -1102,7 +1105,7 @@ void app_draw(void) {
   if (roomish) {
     draw_room_editor();
     top_bar("CELL EDITOR");
-    const char *h[] = { "DPAD", "MOVE", "A", "PLACE", "B", "FLOOR", "STICK", "NEXT CELL", "L R", "TURN", "Y", "SETTINGS", "X", "LEVEL" };
+    const char *h[] = { "DPAD", "MOVE", "A", "PLACE", "B", "FLOOR", "STICK", "NEXT CELL", "L R", "TURN", "X", "SETTINGS", "Y", "LEVEL" };
     if (mode == M_ROOM) hints(h, 7);
   } else {
     if (!framesTried) load_frames();
