@@ -16,8 +16,8 @@ def sel(k):
     global item
     while item != k:
         fwd = (k - item) % 18
-        if fwd <= 9: b("R", 5); item = (item + 1) % 18
-        else: b("L", 5); item = (item - 1) % 18
+        if fwd <= 9: L.append("rstick 1 0 1"); w(5); item = (item + 1) % 18     # the right stick picks tiles
+        else: L.append("rstick -1 0 1"); w(5); item = (item - 1) % 18
 pos = [3, 3]
 def go(x, y):                    # the cell editor's cursor moves with the D-pad
     while pos[0] < x: b("RIGHT", 7); pos[0] += 1
@@ -44,8 +44,10 @@ b("RIGHT", 18); b("RIGHT", 18); b("DOWN", 15); b("UP", 12); b("LEFT", 14); b("LE
 shot("cellset"); w(45)
 b("B", 15)
 # ---- the cell editor
-cap("X: CELL EDITOR   L / R: PICK A TILE")
-b("X", 25)
+cap("X: CELL EDITOR (AS IT LIES ON SCREEN)")
+b("X", 30)
+cap("L / R: TURN THE CELL"); b("L", 30); pos[:] = [3, 4]   # opened at turn 3; the cursor keeps its tile
+cap("RIGHT STICK: PICK A TILE")
 put(5, 2, 5)                    # player
 put(2, 3, 3); put(3, 3, 2)      # a box under a target...
 cap("Y: TILE SETTINGS"); b("Y", 20); b("RIGHT", 25); w(40); b("B", 15)   # ...that sends signal 1 while a box is on it
@@ -83,6 +85,7 @@ w(25); shot("wiring"); w(45)
 b("B", 20)
 # ---- back in: the gate and the light follow the AND
 b("X", 25)
+b("L", 20); pos[:] = [4, 0]     # opened at turn 3 again; the cursor (left at screen 7,4) keeps its tile through the turn
 cap("THE GATE OPENS WHEN THE LIGHT IS ON"); go(6, 4); b("Y", 20)            # the gate's settings
 for _ in range(3): b("RIGHT", 10)   # worked by signal 3
 w(20); shot("gate"); w(45)

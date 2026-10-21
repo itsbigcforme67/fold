@@ -4,7 +4,7 @@
 // frame); "hold <button> <frames>"; "stick <lx> <ly> <frames>"; "rstick <rx> <ry> <frames>"; "wait <frames>";
 // "zoom <ry> <frames>" (BACK + right stick); "load <file>"; "save <file>"; "shot <file.ppm>"; "#" comments;
 // "set <button|-> lx ly rx ry" (stays held); "rec <dir>" saves every frame as dir/NNNNN.ppm until "rec off";
-// "caption <words>" labels the recorded frames ("caption" alone clears it); "bench <n>" times n frames.
+// "caption <words>" labels the recorded frames ("caption" alone clears it); "bench <n>" times n frames; "state" prints the editor's state line.
 #include "app.h"
 #include "gfx.h"
 #include <stdio.h>
@@ -61,6 +61,7 @@ int main(int argc, char **argv) {
       clock_t c0 = clock(); for (int i = 0; i < n; i++) { app_frame(&p); app_draw(); }
       printf("bench: %.2f ms a frame\n", (double)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC / n);
     }
+    else if (!strcmp(w, "state")) { char st[128]; app_state(st, sizeof st); printf("state: %s\n", st); }
     else if (!strcmp(w, "load") && sscanf(line, "%*s %199s", a) == 1) { if (!app_load(a)) printf("line %d: load failed\n", lineno); }
     else if (!strcmp(w, "save") && sscanf(line, "%*s %199s", a) == 1) { if (!app_save(a)) printf("line %d: save failed\n", lineno); }
     else if (!strcmp(w, "shot") && sscanf(line, "%*s %199s", a) == 1) { app_draw(); shot(a); }

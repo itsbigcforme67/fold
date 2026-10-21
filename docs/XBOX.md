@@ -48,8 +48,9 @@ Right stick looks round, Back + right stick zooms, L / R (the triggers, or White
 turn. A places a cell, B removes it, X opens the cell editor, Y the cell's settings, Start the menu, clicking the right
 stick shows the VMX window. Holding Back + Start shows the frame rate in the corner.
 
-Cell editor: the D-pad moves the cursor (past the edge it walks into the next cell), the left stick jumps a whole cell,
-L / R pick a tile, A places it, B makes floor, Y the tile's settings, X back to the level.
+Cell editor: opens turned the way the cell lies on screen in the level view. The D-pad moves the cursor (past the edge
+it walks into the next cell), the left stick jumps a whole cell, the right stick picks a tile, L / R turn the cell a
+quarter turn, A places, B makes floor, Y the tile's settings, X back to the level.
 
 ## Things found on the way
 

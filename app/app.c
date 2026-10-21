@@ -250,7 +250,15 @@ static int dpad_rep(const Pad *p, int *dir) {   // a D-pad press, repeating whil
   }
   return 0;
 }
-static int stickT;
+static int stickT, rstickT;
+static int rstick_rep(float x, float y, int *dir) {   // the right stick, the same way (its own repeat)
+  float ax = fabsf(x), ay = fabsf(y);
+  if (ax < 0.5f && ay < 0.5f) { rstickT = 0; return 0; }
+  rstickT++;
+  if (rstickT != 1 && !(rstickT > 8 && rstickT % 4 == 0)) return 0;
+  *dir = ax > ay ? (x > 0 ? 3 : 2) : (y > 0 ? 1 : 0);
+  return 1;
+}
 static int stick_rep(float x, float y, int *dir) {   // the stick as 4 directions, repeating
   float ax = fabsf(x), ay = fabsf(y);
   if (ax < 0.5f && ay < 0.5f) { stickT = 0; return 0; }
@@ -333,6 +341,24 @@ static void turn_view(int dir) {                // L / R: a quarter turn of the 
   for (int i = 0; i < 3; i++) { r[i] = dir > 0 ? -Fu[i] : Fu[i]; u[i] = dir > 0 ? Fr[i] : -Fr[i]; }
   memcpy(Fr, r, sizeof r); memcpy(Fu, u, sizeof u);
 }
+// the turn of side f's room in the cell editor that matches how it lies on screen in the level view: the editor
+// draws the room's +x to the right and +y down at turn 0, so take the turn whose screen directions fit best
+static int open_rot(int f) {
+  const FoldSquare *q = &L.sq[f >> 1]; int sg = f & 1 ? -1 : 1;
+  Vec3 ux = v3f(sg * q->u[0], sg * q->u[1], sg * q->u[2]), uy = v3f(q->v[0], q->v[1], q->v[2]), r, u;
+  view_axes(&r, &u);
+  int best = 0; float bs = -1e9f;
+  for (int k = 0; k < 4; k++) {
+    int x0, y0, x1, y1, x2, y2;
+    fold_to_screen(0, 0, k, &x0, &y0); fold_to_screen(1, 0, k, &x1, &y1); fold_to_screen(0, 1, k, &x2, &y2);
+    // the room's +x and +y as screen steps, then as directions in the 3D view (screen down = -up)
+    Vec3 wx = v3f(r.x * (x1 - x0) - u.x * (y1 - y0), r.y * (x1 - x0) - u.y * (y1 - y0), r.z * (x1 - x0) - u.z * (y1 - y0));
+    Vec3 wy = v3f(r.x * (x2 - x0) - u.x * (y2 - y0), r.y * (x2 - x0) - u.y * (y2 - y0), r.z * (x2 - x0) - u.z * (y2 - y0));
+    float sc = vdot3(wx, ux) + vdot3(wy, uy);
+    if (sc > bs) { bs = sc; best = k; }
+  }
+  return best;
+}
 static void shape_frame(const Pad *p) {
   int d;
   if (dpad_rep(p, &d)) {                 // the D-pad moves the cursor along the plane
@@ -354,7 +380,7 @@ static void shape_frame(const Pad *p) {
   if (pressed(p, PAD_X) && i >= 0) {
     rf = sq_face_toward_eye(i);
     if (!(sides[i] >> (rf & 1) & 1)) make_room(rf);
-    rrot = 0; mode = M_ROOM;
+    rrot = open_rot(rf); mode = M_ROOM;
   }
   if (pressed(p, PAD_Y) && i >= 0) { propSq = i; prow = 0; propsBack = M_SHAPE; mode = M_PROPS; }
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
@@ -438,6 +464,11 @@ static void paint(int c, int what) {
     if (m >= 0 && (sides[(m / NN) >> 1] >> ((m / NN) & 1) & 1)) { L.wall[m] = L.wall[c]; if (L.wall[m]) { L.box[m] = L.target[m] = L.btn[m] = L.kind[m] = L.aux[m] = 0; } }
   }
 }
+static void room_turn(int dir) {             // turn the room on screen, the cursor staying on its tile
+  int c = screen_to_cell(rx, ry);
+  rrot = (rrot + (dir > 0 ? 3 : 1)) & 3;   // R: clockwise
+  fold_to_screen(c % N, (c / N) % N, rrot, &rx, &ry);
+}
 static void room_frame(const Pad *p) {
   int d;
   if (dpad_rep(p, &d)) {                      // the D-pad moves the cursor (off the edge: into the next cell)
@@ -449,8 +480,13 @@ static void room_frame(const Pad *p) {
     int sd = PADDIR[d], ex = sd == 1 ? N - 1 : sd == 3 ? 0 : rx, ey = sd == 2 ? N - 1 : sd == 0 ? 0 : ry;
     if (!go_room(screen_to_cell(ex, ey), sd)) say("NO CELL THAT WAY");
   }
-  if (pressed(p, PAD_L)) item = (item + NITEMS - 1) % NITEMS;
-  if (pressed(p, PAD_R)) item = (item + 1) % NITEMS;
+  if (pressed(p, PAD_L)) room_turn(-1);       // L / R: a quarter turn of the room on screen
+  if (pressed(p, PAD_R)) room_turn(1);
+  if (rstick_rep(p->rx, p->ry, &d)) {         // the right stick moves round the tile palette (4 a row)
+    int sd = PADDIR[d];
+    if (sd == 1) item = (item + 1) % NITEMS; else if (sd == 3) item = (item + NITEMS - 1) % NITEMS;
+    else if (sd == 0 && item >= 4) item -= 4; else if (sd == 2 && item + 4 < NITEMS) item += 4;
+  }
   if (pressed(p, PAD_A)) paint(screen_to_cell(rx, ry), item);
   if (pressed(p, PAD_B)) paint(screen_to_cell(rx, ry), 1);
   if (pressed(p, PAD_X)) mode = M_SHAPE;
@@ -652,7 +688,7 @@ static void play_frame(const Pad *p) {
 void app_init(const char *dir) { snprintf(levelsDir, sizeof levelsDir, "%s", dir); new_level(); }
 int app_quit(void) { return quit; }
 int app_state(char *b, int n) {                // a line of the editor's state, for comparing runs (tests)
-  return snprintf(b, (size_t)n, "m%d r%d,%d,%d p%d w%d,%d i%d c%d s%d l%d,%d", mode, rx, ry, rf, mrow, wrow, wfield, item, L.nsq, L.player, L.nlogic, L.logic[0].op);
+  return snprintf(b, (size_t)n, "m%d r%d,%d,%d,%d p%d w%d,%d i%d c%d s%d l%d,%d", mode, rx, ry, rf, rrot, mrow, wrow, wfield, item, L.nsq, L.player, L.nlogic, L.logic[0].op);
 }
 void app_frame(const Pad *p) {
   t++; if (msgT) msgT--;
@@ -996,7 +1032,7 @@ static void draw_room_editor(void) {
     for (int j = 0; j < 7; j++) for (int i2 = 0; i2 < 7; i2++) if (spr[j][i2] == '#') gfx_rect(bx + 1 + i2 * 5, by + 1 + j * 5, 5, 5, ic);
   }
   gfx_text5(px0 + 14, py0 + 270, 2, C_HI, ITEMS[item]);
-  gfx_hint(px0 + 4, py0 + 312, "L", ""); gfx_hint(px0 + 34, py0 + 312, "R", "PICK A TILE");
+  gfx_hint(px0 + 4, py0 + 312, "R-STICK", "PICK A TILE");
 }
 // ---- the level view's layout (the owner's sketch, 2026-10-20): a row of tabs along the top, the green scene, and the
 // controls as pictures on brushed-metal panels in the bottom corners
@@ -1053,8 +1089,8 @@ void app_draw(void) {
   if (roomish) {
     draw_room_editor();
     top_bar("CELL EDITOR");
-    const char *h[] = { "DPAD", "MOVE", "A", "PLACE", "B", "FLOOR", "STICK", "NEXT CELL", "Y", "SETTINGS", "X", "LEVEL" };
-    if (mode == M_ROOM) hints(h, 6);
+    const char *h[] = { "DPAD", "MOVE", "A", "PLACE", "B", "FLOOR", "STICK", "NEXT CELL", "L R", "TURN", "Y", "SETTINGS", "X", "LEVEL" };
+    if (mode == M_ROOM) hints(h, 7);
   } else {
     if (!framesTried) load_frames();
     gfx_view_offset(0, 16);                   // (the green gradient behind it is drawn above)
