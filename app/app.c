@@ -856,7 +856,7 @@ static void set_in(const WNode *n, int i, int s) {
   else if (n->kind == NK_LOGIC) {
     FoldLogic *q = &L.logic[n->ref]; int a = lop_arity(q->op);
     q->in[i] = (uint8_t)s;
-    if (!a && !s) { for (int k = i; k < 3; k++) q->in[k] = q->in[k + 1]; q->in[3] = 0; }   // close the gap
+    if (!a) { int k = 0; for (int j = 0; j < 4; j++) if (q->in[j]) q->in[k++] = q->in[j]; while (k < 4) q->in[k++] = 0; }   // no gaps (a gap reads off)
     int used = 0; for (int k = 0; k < 4; k++) if (q->in[k]) used = k + 1;
     q->n = (uint8_t)(a ? a : used);
   }
@@ -926,18 +926,23 @@ static void wire_frame(const Pad *p) {
   }
   WNode *n = &wn[wcur];
   if (wport >= node_nin(n) || (wport < 0 && node_out(n) < 0)) wport = node_out(n) >= 0 ? -1 : 0;
-  if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {   // to the nearest port that way
-    int sd = PADDIR[d], cx, cy, best = -1, bp = 0; float bs = 1e9f;
+  if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {   // left / right: the next column of ports, the nearest
+    int sd = PADDIR[d], cx, cy, best = -1, bp = 0;          // by height; up / down: along the column
+    float bs = 1e9f, nearest = 1e9f;
     port_xy(n, wport, &cx, &cy);
-    for (int k = 0; k < nwn; k++) for (int pp = -1; pp < node_nin(&wn[k]); pp++) {
-      if (pp < 0 && (node_out(&wn[k]) < 0 || wHold > 0)) continue;   // carrying a wire: only inputs
-      if (k == wcur && pp == wport) continue;
-      int x, y; port_xy(&wn[k], pp, &x, &y);
-      float dx = (float)(x - cx), dy = (float)(y - cy), along = sd == 0 ? -dy : sd == 1 ? dx : sd == 2 ? dy : -dx, across = sd == 0 || sd == 2 ? fabsf(dx) : fabsf(dy);
-      if (along < 3) continue;
-      float sc = along + 2.5f * across;
-      if (sc < bs) { bs = sc; best = k; bp = pp; }
-    }
+    for (int pass = 0; pass < 2; pass++)
+      for (int k = 0; k < nwn; k++) for (int pp = -1; pp < node_nin(&wn[k]); pp++) {
+        if (pp < 0 && (node_out(&wn[k]) < 0 || wHold > 0)) continue;   // carrying a wire: only inputs
+        if (k == wcur && pp == wport) continue;
+        int x, y; port_xy(&wn[k], pp, &x, &y);
+        float dx = (float)(x - cx), dy = (float)(y - cy), along = sd == 0 ? -dy : sd == 1 ? dx : sd == 2 ? dy : -dx, across = sd == 0 || sd == 2 ? fabsf(dx) : fabsf(dy);
+        if (along < 3) continue;
+        if (pass == 0) { if ((sd == 1 || sd == 3) ? along < nearest : 0) nearest = along; continue; }   // the next column over
+        float sc;
+        if (sd == 1 || sd == 3) { if (along > nearest + 20) continue; sc = across; }
+        else sc = across <= 20 ? along : along + 4 * across + 1000;   // the same column first
+        if (sc < bs) { bs = sc; best = k; bp = pp; }
+      }
     if (best >= 0) { wcur = best; wport = bp; n = &wn[wcur]; }
   }
   if (pressed(p, PAD_A)) {
