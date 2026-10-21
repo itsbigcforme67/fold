@@ -410,6 +410,22 @@ static void shape_frame(const Pad *p) {
 }
 
 // ---- room editor -------------------------------------------------------------------------------------------------
+typedef struct { Vec3 o, u, v, n; } FFrame;   // a side's frame (front, or the back's mirror)
+static FFrame face_frame(int f);
+static void screen_axes(Vec3 *rw, Vec3 *dw);
+static Vec3 vsc(Vec3 a, float k);
+// the cell editor's room animations (as on the VMX): moving into the next cell slides flat or turns over the edge (an
+// outside corner tips away like a cube, an inside corner folds up towards you); a right-stick turn spins the room; up /
+// down turns the cell over to its other side. The old picture is kept as a texture; both are drawn on 3D quads.
+enum { AN_NONE, AN_MOVE, AN_TURN, AN_FLIP };
+static int anKind, anT, anLen, anSd, anRel, anDir;   // anRel: 0 flat, 1 outside corner, 2 inside corner
+static uint32_t anOld[56 * 56], anNew[56 * 56];
+static void room_picture(int f, int rot, uint32_t *out) {
+  static uint8_t b[64 * 64]; memset(b, 0, sizeof b);
+  vmx_room(b, L.wall, L.target, L.box, L.btn, L.kind, L.aux, f, rot, L.player, &S, 0);
+  for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) out[y * 56 + x] = b[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK;
+}
+static void anim_start(int kind, int len) { anKind = kind; anT = 0; anLen = len; room_picture(rf, rrot, anOld); }
 static int screen_to_cell(int sx, int sy) {   // inverse of fold_to_screen for the room on screen
   for (int c = rf * NN; c < (rf + 1) * NN; c++) { int x, y; fold_to_screen(c % N, (c / N) % N, rrot, &x, &y); if (x == sx && y == sy) return c; }
   return rf * NN;
@@ -419,6 +435,13 @@ static int go_room(int c, int sd) {           // step from cell c in screen dire
   if (c1 < 0) return 0;
   int f1 = c1 / NN;
   if (!(sides[f1 >> 1] >> (f1 & 1) & 1)) return 0;
+  { // the animation: flat, or over an outside / inside corner (the next side's normal along / against the way you went)
+    Vec3 rw, dw; screen_axes(&rw, &dw);
+    Vec3 dWorld = sd == 0 ? vsc(dw, -1) : sd == 1 ? rw : sd == 2 ? dw : vsc(rw, -1);
+    FFrame A = face_frame(rf), B = face_frame(f1);
+    anim_start(AN_MOVE, 12); anSd = sd;
+    anRel = vdot3(A.n, B.n) > 0.5f ? 0 : vdot3(B.n, dWorld) > 0.5f ? 1 : vdot3(B.n, dWorld) < -0.5f ? 2 : 0;
+  }
   rf = f1; rrot = (d1 - sd) & 3;
   fold_to_screen(c1 % N, (c1 / N) % N, rrot, &rx, &ry);
   return 1;
@@ -491,8 +514,19 @@ static void paint(int c, int what) {
 }
 static void room_turn(int dir) {             // turn the room on screen, the cursor staying on its tile
   int c = screen_to_cell(rx, ry);
+  anim_start(AN_TURN, 8); anDir = dir;
   rrot = (rrot + (dir > 0 ? 3 : 1)) & 3;   // R: clockwise
   fold_to_screen(c % N, (c / N) % N, rrot, &rx, &ry);
+}
+static void room_flip(int dir) {             // the right stick up / down: turn the cell over to its other side
+  int f = rf ^ 1, c = screen_to_cell(rx, ry);
+  if (!(sides[rf >> 1] >> (f & 1) & 1)) { say(f & 1 ? "NO ROOM ON THE BACK: A IN THE LEVEL VIEW ADDS ONE" : "NO ROOM ON THE FRONT"); return; }
+  Vec3 rw, dw; screen_axes(&rw, &dw);           // turned over top to bottom: screen right stays, screen down reverses
+  anim_start(AN_FLIP, 14); anDir = dir;
+  int was = rf, best = 0; float bs = -1e9f; rf = f;
+  for (int k = 0; k < 4; k++) { rrot = k; Vec3 r2, d2; screen_axes(&r2, &d2); float sc = vdot3(r2, rw) - vdot3(d2, dw); if (sc > bs) { bs = sc; best = k; } }
+  rrot = best; (void)was;
+  int cc = f * NN + (c % NN); fold_to_screen(cc % N, (cc / N) % N, rrot, &rx, &ry);   // the same spot, seen from the other side
 }
 static void room_layer(int dir) {            // to the same side of the cell stacked one above (towards you) or below
   const FoldSquare *q = &L.sq[rf >> 1]; int sg = rf & 1 ? -1 : 1, o[3], u[3], v[3];
@@ -506,6 +540,7 @@ static void room_layer(int dir) {            // to the same side of the cell sta
 }
 static void room_frame(const Pad *p) {
   int d;
+  if (anKind && ++anT >= anLen) anKind = AN_NONE;
   if (inPal) {                                // on the tile palette (4 a row): the D-pad picks, A takes it, B goes back
     if (dpad_rep(p, &d)) {
       int sd = PADDIR[d];
@@ -528,9 +563,9 @@ static void room_frame(const Pad *p) {
     int sd = PADDIR[d], ex = sd == 1 ? N - 1 : sd == 3 ? 0 : rx, ey = sd == 2 ? N - 1 : sd == 0 ? 0 : ry;
     if (!go_room(screen_to_cell(ex, ey), sd)) say("NO CELL THAT WAY");
   }
-  if (rstick_rep(p->rx, p->ry, &d)) {         // the right stick, left / right: a quarter turn of the room on screen
-    int sd = PADDIR[d];
-    if (sd == 1) room_turn(1); else if (sd == 3) room_turn(-1);
+  if (rstick_rep(p->rx, p->ry, &d)) {         // the right stick: left / right turn the room a quarter, up / down turn
+    int sd = PADDIR[d];                        // the cell over to its other side
+    if (sd == 1) room_turn(1); else if (sd == 3) room_turn(-1); else room_flip(sd == 0 ? 1 : -1);
   }
   if (pressed(p, PAD_WHITE)) room_layer(1);   // White / Black: the room a layer above / below (out of / into the screen)
   if (pressed(p, PAD_BLACK)) room_layer(-1);
@@ -843,7 +878,6 @@ static void block(Vec3 o, Vec3 du, Vec3 dv, Vec3 n, float h, const Tex *top, con
 // height = (1 - 2 GAP) / 8 x 0.55, i.e. about half a cell.)
 #define GAP 0.0604f
 #define CS ((1.0f - 2 * GAP) / N)
-typedef struct { Vec3 o, u, v, n; } FFrame;   // a side's frame (front, or the back's mirror)
 static FFrame face_frame(int f) {
   const FoldSquare *q = &L.sq[f >> 1];
   FFrame F = { v3f(q->o[0], q->o[1], q->o[2]), v3f(q->u[0], q->u[1], q->u[2]), v3f(q->v[0], q->v[1], q->v[2]), v3f(q->n[0], q->n[1], q->n[2]) };
@@ -1132,6 +1166,43 @@ static void mini_level(int x, int y, int w, int h) {
   }
   gfx_clip(0, 0, 0, 0); gfx_view_offset(0, 0);
 }
+static void room_anim_draw(int X0, int Y0) {    // the room as 3D quads while an animation runs (see anKind)
+  float t = (anT + 1) / (float)anLen; if (t > 1) t = 1; t = t * t * (3 - 2 * t);
+  room_picture(rf, rrot, anNew);
+  Tex to = { 56, 56, anOld }, tn = { 56, 56, anNew };
+  gfx_rect(X0, Y0, 336, 336, VMX_DARK);
+  gfx_clip(X0, Y0, 336, 336); gfx_zclear_rect(X0, Y0, 336, 336); gfx_fog(0, 1e9f, 2e9f);
+  gfx_view_offset(X0 + 168 - GW / 2, Y0 + 168 - GH / 2);
+  const float E = 2.6f;
+  gfx_camera(mat_mul(mat_perspective(2 * atanf(GH / 336.0f / 2 / E), (float)GW / GH, 0.05f, 50.0f), mat_lookat(v3f(0, 0, E), v3f(0, 0, 0), v3f(0, 1, 0))));
+  static const float CX[4] = { -0.5f, 0.5f, 0.5f, -0.5f }, CY[4] = { 0.5f, 0.5f, -0.5f, -0.5f };   // TL TR BR BL
+  Vec3 P[4];
+  if (anKind == AN_TURN) {                     // the new picture, from the old turn to its own
+    float a = (1 - t) * (anDir > 0 ? 90 : -90) * PI / 180, c = cosf(a), sn = sinf(a);
+    for (int k = 0; k < 4; k++) P[k] = v3f(CX[k] * c - CY[k] * sn, CX[k] * sn + CY[k] * c, 0);
+    gfx_quad(P, &tn, 0, 1);
+  } else if (anKind == AN_FLIP) {              // turned over about the screen's horizontal axis: old, then new
+    float th = t * PI * anDir, a = t < 0.5f ? th : th - PI * anDir, c = cosf(a), sn = sinf(a);
+    for (int k = 0; k < 4; k++) P[k] = v3f(CX[k], CY[k] * c, CY[k] * sn);
+    gfx_quad(P, t < 0.5f ? &to : &tn, 0, 1);
+  } else {                                      // into the next cell: slide, or turn over the corner
+    float dx = anSd == 1 ? 1.f : anSd == 3 ? -1.f : 0.f, dy = anSd == 0 ? 1.f : anSd == 2 ? -1.f : 0.f;
+    for (int q = 0; q < 2; q++) {               // q 0: the old room, 1: the new one (its final place, moved back)
+      float th = 0, cz = 0, off = 0;
+      if (anRel == 0) off = q ? 1 - t : -t;
+      else if (anRel == 1) { cz = -0.5f; th = (t * 90 - (q ? 90 : 0)) * PI / 180; }
+      else { cz = 0.5f; th = (-t * 90 + (q ? 90 : 0)) * PI / 180; }
+      for (int k = 0; k < 4; k++) {
+        float sv = CX[k] * dx + CY[k] * dy, px = CX[k] - sv * dx, py = CY[k] - sv * dy, s2, z2;
+        if (anRel == 0) { s2 = sv + off; z2 = 0; }
+        else { s2 = sv * cosf(th) + cz * sinf(th); z2 = cz + sv * sinf(th) - cz * cosf(th); }
+        P[k] = v3f(px + s2 * dx, py + s2 * dy, z2);
+      }
+      gfx_quad(P, q ? &tn : &to, 0, 1);
+    }
+  }
+  gfx_clip(0, 0, 0, 0); gfx_view_offset(0, 0);
+}
 static void draw_room_editor(void) {
   memset(bits, 0, sizeof bits);
   vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, rf, rrot, L.player, &S, 0);
@@ -1139,9 +1210,10 @@ static void draw_room_editor(void) {
   char s[64];
   snprintf(s, sizeof s, "CELL %d  %s SIDE", rf >> 1, rf & 1 ? "BACK" : "FRONT");
   gfx_panel(X0 - 12, Y0 - 40, 56 * S6 + 24, 56 * S6 + 52, s, C_HI);
-  for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S6, Y0 + y * S6, S6, S6, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
+  if (anKind) room_anim_draw(X0, Y0);
+  else for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S6, Y0 + y * S6, S6, S6, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
   uint32_t cc = (t >> 3) & 1 ? C_CURSOR : 0xffffff;
-  if (!inPal) for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 42 - w, Y0 + ry * 42 - w, 42 + 2 * w, 42 + 2 * w, cc);
+  if (!inPal && !anKind) for (int w = 0; w < 3; w++) gfx_frame(X0 + rx * 42 - w, Y0 + ry * 42 - w, 42 + 2 * w, 42 + 2 * w, cc);
   { Vec3 rw, dw; screen_axes(&rw, &dw);          // which way each edge faces in the world: N S E W, U up, D down
     const Vec3 dir[4] = { vsc(dw, -1), rw, dw, vsc(rw, -1) };
     const int ex[4] = { X0 + 168, X0 + 336, X0 + 168, X0 }, ey[4] = { Y0, Y0 + 168, Y0 + 336, Y0 + 168 };

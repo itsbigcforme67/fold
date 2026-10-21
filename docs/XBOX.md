@@ -55,7 +55,9 @@ Holding Back + Start shows the frame rate in the corner.
 Cell editor: opens turned the way the cell lies on screen in the level view. The D-pad moves the cursor: past the
 right edge onto the tile palette (there the D-pad picks, A takes the tile, B or left past the first column goes
 back), past the other edges into the next cell. The left stick jumps a whole cell; White / Black go to the room a
-layer above / below; the right stick, left / right, turns the room a quarter turn. A places, B makes floor, X the
+layer above / below; the right stick, left / right, turns the room a quarter turn, up / down turns the cell over to
+its other side. Moving into the next cell animates as on the VMX (a slide on the flat, a cube turn over an outside
+corner, a fold up over an inside one); turning and turning over animate too. A places, B makes floor, X the
 tile's settings (X or B closes them), Y back to the level. Under the palette, the whole level, following the room being
 edited (yellow, seen as the editor shows it). Each edge of the room has a letter for the way it faces in the world:
 N / S (y), E / W (x), U / D (z); the level view's compass uses the same letters.
