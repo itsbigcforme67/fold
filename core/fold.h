@@ -55,6 +55,7 @@ typedef struct {
   char name[32];
   int nsq;
   FoldSquare sq[FOLD_MAXSQ];
+  char sqname[FOLD_MAXSQ][16];            // a cell's name, "" = none (shown in the editor and as you walk in)
   uint8_t wall[FOLD_MAXC], target[FOLD_MAXC], box[FOLD_MAXC], btn[FOLD_MAXC];   // btn = button number (from 1)
   uint8_t kind[FOLD_MAXC], aux[FOLD_MAXC], drv[FOLD_MAXC], txt[FOLD_MAXC];   // txt = 1 + its text, 0 = none
   int player;

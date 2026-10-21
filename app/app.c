@@ -28,7 +28,7 @@
 #define N FOLD_N
 #define NN FOLD_NN
 #define PI 3.14159265f
-enum { M_SHAPE, M_ROOM, M_PROPS, M_MENU, M_PLAY, M_TILE, M_WIRE };
+enum { M_SHAPE, M_ROOM, M_PROPS, M_MENU, M_PLAY, M_TILE, M_WIRE, M_KEYS };
 
 // colours (TV)
 #define C_BG 0x0b0e0a
@@ -68,7 +68,7 @@ static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAY
 static int propFace, propRot;   // the side the cell settings' layout tools work on, and its turn on screen
 static int prow, mrow, fileIx, vmxWin = 0, propSq, propsBack = M_SHAPE, trow, tcell, wrow, wfield;
 // playtest
-static FoldLevel PL; static FoldGame G; static int popT, wonT, holdB; static const char *popWord;
+static FoldLevel PL; static FoldGame G; static int popT, wonT, holdB, bannerT, bannerSq = -1; static const char *popWord;
 static char talk[FOLD_TEXTLEN * 2]; static int talkOn, talkPage;   // what the tile you talked to says
 
 static void say(const char *s) { snprintf(msg, sizeof msg, "%s", s); msgT = 90; }
@@ -106,22 +106,24 @@ static int add_sq(int nc[3]) {           // a tile at the cursor, its front faci
   if (c0 * nc[0] + c1 * nc[1] + c2 * nc[2] < 0) { u = ce2; v = ce1; }
   for (int i = 0; i < 3; i++) { q.o[i] = (int8_t)co[i]; q.u[i] = (int8_t)u[i]; q.v[i] = (int8_t)v[i]; q.n[i] = (int8_t)nc[i]; }
   int i = L.nsq++;
-  L.sq[i] = q; sides[i] = 0; func[i].kind = 0; trig[i] = 0;
+  L.sq[i] = q; sides[i] = 0; func[i].kind = 0; trig[i] = 0; L.sqname[i][0] = 0;
   make_room(2 * i); clear_face(2 * i + 1);
   resurface();
   return i;
 }
 static void remove_sq(int i) {
   int n = L.nsq;
-  uint8_t *arr[6] = { L.wall, L.target, L.box, L.btn, L.kind, L.aux };
-  for (int k = 0; k < 6; k++) memmove(arr[k] + 2 * i * NN, arr[k] + 2 * (i + 1) * NN, (size_t)(2 * (n - i - 1) * NN));
+  uint8_t *arr[8] = { L.wall, L.target, L.box, L.btn, L.kind, L.aux, L.drv, L.txt };   // every layer moves down
+  for (int k = 0; k < 8; k++) memmove(arr[k] + 2 * i * NN, arr[k] + 2 * (i + 1) * NN, (size_t)(2 * (n - i - 1) * NN));
   memmove(&L.sq[i], &L.sq[i + 1], sizeof(FoldSquare) * (n - i - 1));
+  memmove(L.sqname[i], L.sqname[i + 1], sizeof L.sqname[0] * (n - i - 1));
   memmove(&sides[i], &sides[i + 1], (size_t)(n - i - 1)); memmove(&func[i], &func[i + 1], sizeof(FoldAct) * (n - i - 1));
   memmove(&trig[i], &trig[i + 1], sizeof(int) * (n - i - 1));
   for (int k = 0; k < n - 1; k++) if (func[k].kind && func[k].sq > i) func[k].sq--;
   if (L.player >= 0) { int f = L.player / NN; if (f >> 1 == i) L.player = -1; else if (f >> 1 > i) L.player -= 2 * NN; }
   L.nsq--;
-  for (int k = 0; k < 6; k++) memset(arr[k] + 2 * L.nsq * NN, k == 0, 2 * NN);
+  for (int k = 0; k < 8; k++) memset(arr[k] + 2 * L.nsq * NN, k == 0, 2 * NN);
+  L.sqname[L.nsq][0] = 0;
   resurface();
 }
 // ---- signals -----------------------------------------------------------------------------------------------------
@@ -168,6 +170,7 @@ int app_save(const char *p) {
   fprintf(f, "fold 1\nname %s\n", L.name);
   for (int i = 0; i < L.nsq; i++) { const FoldSquare *q = &L.sq[i];
     fprintf(f, "square %d %d %d  %d %d %d  %d %d %d\n", q->o[0], q->o[1], q->o[2], q->u[0], q->u[1], q->u[2], q->v[0], q->v[1], q->v[2]); }
+  for (int i = 0; i < L.nsq; i++) if (L.sqname[i][0]) fprintf(f, "cellname %d %s\n", i, L.sqname[i]);
   for (int fc = 0; fc < 2 * L.nsq; fc++) {
     if (!(sides[fc >> 1] >> (fc & 1) & 1)) continue;
     fprintf(f, "room %d %c\n", fc >> 1, fc & 1 ? 'b' : 'f');
@@ -538,6 +541,48 @@ static void room_layer(int dir) {            // to the same side of the cell sta
   if (!(sides[j] >> (f & 1) & 1)) { say("NO ROOM ON THAT CELL'S SIDE"); return; }
   rf = f;
 }
+// ---- the on-screen keyboard: names, a sign's words, a keypad's code -------------------------------------------------
+static const char *KROWS[5] = { "ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ.,!?", "0123456789", "" };   // row 4: SPACE DEL DONE
+static char *kbBuf; static int kbMax, kbBack, kbX, kbY; static const char *kbTitle;
+static void keys_open(char *buf, int max, const char *title) { kbBuf = buf; kbMax = max; kbTitle = title; kbBack = mode; kbX = kbY = 0; mode = M_KEYS; }
+static void keys_frame(const Pad *p) {
+  int d, n = (int)strlen(kbBuf);
+  if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
+    int sd = PADDIR[d], w = kbY == 4 ? 3 : 10;
+    if (sd == 1) kbX = (kbX + 1) % w; else if (sd == 3) kbX = (kbX + w - 1) % w;
+    else {                                    // up / down: keep roughly the same place across the wide bottom keys
+      int ny = (kbY + (sd == 2 ? 1 : 4)) % 5;
+      if (kbY == 4 && ny != 4) kbX = kbX * 3 + 1; else if (ny == 4) kbX = kbX / 4 > 2 ? 2 : kbX / 4;
+      kbY = ny;
+    }
+  }
+  if (pressed(p, PAD_A)) {
+    if (kbY < 4) { if (n < kbMax) { kbBuf[n] = KROWS[kbY][kbX]; kbBuf[n + 1] = 0; } }
+    else if (kbX == 0) { if (n < kbMax && n) { kbBuf[n] = ' '; kbBuf[n + 1] = 0; } }
+    else if (kbX == 1) { if (n) kbBuf[n - 1] = 0; }
+    else mode = kbBack;
+  }
+  if (pressed(p, PAD_B) && n) kbBuf[n - 1] = 0;
+  if (pressed(p, PAD_START)) mode = kbBack;
+  if (mode != M_KEYS) { n = (int)strlen(kbBuf); while (n && kbBuf[n - 1] == ' ') kbBuf[--n] = 0; }   // no trailing spaces
+}
+static void hints(const char **pairs, int n);
+static void keys_draw(void) {
+  gfx_dim(0, 0, GW, GH, 0.5f);
+  gfx_panel(100, 110, 440, 290, kbTitle, C_HI);
+  char line[40]; snprintf(line, sizeof line, "%s%s", kbBuf, (t >> 3) & 1 ? "_" : " ");
+  gfx_rect(120, 156, 400, 30, 0x0a120a); gfx_text5(130, 164, 2, 0xe8ffd8, line);
+  for (int y = 0; y < 5; y++) {
+    int w = y == 4 ? 3 : 10;
+    for (int x = 0; x < w; x++) {
+      int bw = y == 4 ? 124 : 36, bx = 128 + x * (y == 4 ? 130 : 39), by = 202 + y * 38, sel = x == kbX && y == kbY;
+      gfx_rect(bx, by, bw, 32, sel ? 0x2f5a24 : 0x141c12); if (sel) gfx_frame(bx, by, bw, 32, C_HI);
+      char k[8]; if (y < 4) { k[0] = KROWS[y][x]; k[1] = 0; } else snprintf(k, sizeof k, "%s", x == 0 ? "SPACE" : x == 1 ? "DEL" : "DONE");
+      gfx_text5(bx + bw / 2 - gfx_text5_w(2, k) / 2, by + 9, 2, sel ? 0xe8ffd8 : C_TEXT, k);
+    }
+  }
+  const char *h[] = { "DPAD", "KEY", "A", "TYPE", "B", "DELETE", "START", "DONE" }; hints(h, 4);
+}
 static void room_frame(const Pad *p) {
   int d;
   if (anKind && ++anT >= anLen) anKind = AN_NONE;
@@ -600,7 +645,7 @@ static int func_ok(int i, const FoldAct *a) {   // a shift / hinge must not land
   tmp[i] = fold_geo_pose(L.sq[i], a);
   return !fold_overlap(tmp, L.nsq);
 }
-enum { P_MOVE, P_SIGNAL, P_TURNMODE, P_MIRX, P_MIRY, P_TURNLAY, P_COPY, P_PASTE, P_DELETE };
+enum { P_NAME, P_MOVE, P_SIGNAL, P_TURNMODE, P_MIRX, P_MIRY, P_TURNLAY, P_COPY, P_PASTE, P_DELETE };
 // layout tools (editing only, not the cell's moves in play): mirror, turn, copy and paste a side's room, as it lies
 // on screen (propRot: the editor's turn, or the level view's when opened from there)
 static struct { uint8_t a[8][NN]; int player, ok; } clip;
@@ -641,7 +686,7 @@ static void layout_op(int op) {                 // 0 mirror left / right, 1 mirr
 }
 
 static int prop_rows(int i, int *rows) {      // which rows the cell settings show
-  int n = 0; rows[n++] = P_MOVE; rows[n++] = P_SIGNAL;
+  int n = 0; rows[n++] = P_NAME; rows[n++] = P_MOVE; rows[n++] = P_SIGNAL;
   if (func[i].kind == 'r' || func[i].kind == 'R') rows[n++] = P_TURNMODE;
   if (propFace >> 1 == i && (sides[i] >> (propFace & 1) & 1)) {   // the layout tools, for the side with a room
     rows[n++] = P_MIRX; rows[n++] = P_MIRY; rows[n++] = P_TURNLAY; rows[n++] = P_COPY; if (clip.ok) rows[n++] = P_PASTE;
@@ -669,6 +714,7 @@ static void props_frame(const Pad *p) {
   }
   if (pressed(p, PAD_A) && rows[prow] == P_DELETE) { remove_sq(i); mode = M_SHAPE; say("CELL REMOVED"); return; }
   if (pressed(p, PAD_A)) switch (rows[prow]) {
+    case P_NAME: keys_open(L.sqname[i], 15, "NAME THIS CELL"); return;
     case P_MIRX: layout_op(0); say("LAYOUT MIRRORED LEFT TO RIGHT"); break;
     case P_MIRY: layout_op(1); say("LAYOUT MIRRORED TOP TO BOTTOM"); break;
     case P_TURNLAY: layout_op(2); say("LAYOUT TURNED"); break;
@@ -761,7 +807,7 @@ static char files[64][64]; static int nfiles;
 static void start_play(void) {
   build(&PL);
   if (PL.player < 0) { say("PUT THE PLAYER IN A CELL FIRST"); mode = M_SHAPE; return; }
-  fold_start(&G, &PL); popT = wonT = 0; mode = M_PLAY;
+  fold_start(&G, &PL); popT = wonT = 0; bannerSq = -1; mode = M_PLAY;
 }
 static void menu_frame(const Pad *p) {
   int d;
@@ -789,6 +835,8 @@ static void menu_frame(const Pad *p) {
   if (pressed(p, PAD_B) || pressed(p, PAD_START)) mode = M_SHAPE;
 }
 static void play_frame(const Pad *p) {
+  { int sq = G.p >= 0 ? G.p / NN / 2 : -1;     // walking into a named cell shows its name for a moment
+    if (sq != bannerSq) { bannerSq = sq; bannerT = sq >= 0 && PL.sqname[sq][0] ? 45 : 0; } else if (bannerT) bannerT--; }
   if (talkOn) {                               // reading what a tile says: A / B turn the page, then close
     if (pressed(p, PAD_A) || pressed(p, PAD_B)) { static uint8_t tmp[64 * 64]; if (++talkPage >= vmx_talk(tmp, talk, 0)) talkOn = 0; }
     if (pressed(p, PAD_START)) talkOn = 0;
@@ -831,6 +879,7 @@ void app_frame(const Pad *p) {
     case M_PLAY: play_frame(p); break;
     case M_TILE: tile_frame(p); break;
     case M_WIRE: wire_frame(p); break;
+    case M_KEYS: keys_frame(p); break;
   }
   prev = p->held;
 }
@@ -1208,7 +1257,8 @@ static void draw_room_editor(void) {
   vmx_room(bits, L.wall, L.target, L.box, L.btn, L.kind, L.aux, rf, rrot, L.player, &S, 0);
   const int S6 = 6, X0 = 30, Y0 = 62;          // the room 6x bigger: a cell is 42 px
   char s[64];
-  snprintf(s, sizeof s, "CELL %d  %s SIDE", rf >> 1, rf & 1 ? "BACK" : "FRONT");
+  if (L.sqname[rf >> 1][0]) snprintf(s, sizeof s, "%s  %s", L.sqname[rf >> 1], rf & 1 ? "BACK" : "FRONT");
+  else snprintf(s, sizeof s, "CELL %d  %s SIDE", rf >> 1, rf & 1 ? "BACK" : "FRONT");
   gfx_panel(X0 - 12, Y0 - 40, 56 * S6 + 24, 56 * S6 + 52, s, C_HI);
   if (anKind) room_anim_draw(X0, Y0);
   else for (int y = 0; y < 56; y++) for (int x = 0; x < 56; x++) gfx_rect(X0 + x * S6, Y0 + y * S6, S6, S6, bits[(y + 8) * 64 + x + 4] ? VMX_LIT : VMX_DARK);
@@ -1276,10 +1326,16 @@ static void row(int x, int y, int w, int sel, const char *s) {
 }
 void app_draw(void) {
   char s[160];
+  if (mode == M_KEYS) { mode = kbBack; app_draw(); mode = M_KEYS; keys_draw(); return; }   // the keyboard over its screen
   gfx_gradient(0x142012, 0x040604);
   if (mode == M_PLAY) {
     static uint8_t b[64 * 64];
     vmx_game(b, &G, 1, popT ? popWord : NULL);
+    if (bannerT && !popT) {                   // the cell's name across the top of the room
+      const char *nm = PL.sqname[bannerSq]; int w = 4 * (int)strlen(nm) + 4, x0 = 32 - w / 2;
+      for (int y = 9; y <= 17; y++) for (int x = x0 - 1; x <= x0 + w; x++) if (x >= 0 && x < 64) b[y * 64 + x] = (y == 9 || y == 17 || x == x0 - 1 || x == x0 + w);
+      vmx_text(b, x0 + 2, 11, nm);
+    }
     if (talkOn) vmx_talk(b, talk, talkPage);
     if (wonT) { for (int y = 24; y < 40; y++) for (int x = 6; x < 58; x++) b[y * 64 + x] = 0; vmx_text(b, 20, 26, "CLEAR!"); snprintf(s, sizeof s, "%d MOVES", G.moves); vmx_text(b, 32 - 2 * (int)strlen(s) + 1, 33, s); }
     draw_vmx(GW / 2 - 96, 130, 3, b);
@@ -1301,6 +1357,8 @@ void app_draw(void) {
     gfx_view_offset(0, 0);
     tab_row(mode == M_WIRE ? 2 : mode == M_MENU ? 3 : 0);
     snprintf(s, sizeof s, "%s   %d CELLS", L.name, L.nsq); gfx_text5(GW - 12 - gfx_text5_w(1, s), 44, 1, 0x7f8a78, s);
+    { int ci = find_sq(co, ce1, ce2);       // the cell under the cursor, by name
+      if (ci >= 0 && L.sqname[ci][0]) { snprintf(s, sizeof s, "CELL %d: %s", ci, L.sqname[ci]); gfx_text5(GW - 12 - gfx_text5_w(1, s), 56, 1, 0xf2e01c, s); } }
     if (mode == M_SHAPE) {
       level_controls();
       gfx_dim(8, 44, 100, 100, 0.35f);       // the compass, top left: which way the world's axes point
@@ -1317,11 +1375,13 @@ void app_draw(void) {
   }
   if (mode == M_PROPS) {
     int i = propSq, rows[12], nr = prop_rows(i, rows), h = 50 + nr * 26 + 30;
+    if (h > 340) h = 340;
     snprintf(s, sizeof s, "CELL %d SETTINGS", i);
     gfx_panel(120, 110, 400, h, s, C_HI);
     for (int k = 0; k < nr; k++) {
       char r[64];
       switch (rows[k]) {
+        case P_NAME: snprintf(r, sizeof r, "NAME: %s  (A)", L.sqname[i][0] ? L.sqname[i] : "-"); break;
         case P_MOVE: snprintf(r, sizeof r, "MOVE: %s", FUNCS[func_index(&func[i])]); break;
         case P_SIGNAL: if (trig[i]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", trig[i]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
         case P_TURNMODE: snprintf(r, sizeof r, "TURNS: %s", func[i].kind == 'R' ? "WHILE ON, BACK WHEN OFF" : "A QUARTER EACH CHANGE"); break;

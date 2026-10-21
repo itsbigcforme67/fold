@@ -34,6 +34,8 @@ a key: it's used up and the lock becomes floor; boxes can't open it), `+` grate 
 A box or the player starting on any other kind of tile: `box <square> <f|b> <x> <y>` / `player <square> <f|b> <x> <y>`
 after the room block. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.
 
+A cell's name: `cellname <square> <text>` (up to 15 characters; shown in the editor, and on the VMX as you walk in).
+
 A level with no player loads (an unfinished one, saved from the editor); playing it needs one.
 
 Link entries, applied in order: `f<i>` flip square i (each side's contents move to the same spot on the other

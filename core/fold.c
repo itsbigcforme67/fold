@@ -569,6 +569,11 @@ int fold_parse(FoldLevel *lv, const char *text, char *err, int errlen) {
     const char *rest = line + at;
     if (!strcmp(word, "fold")) { if (atoi(rest) != 1) FAIL("line %d: unknown version", lineno); }
     else if (!strcmp(word, "name")) { strncpy(lv->name, rest, sizeof lv->name - 1); }
+    else if (!strcmp(word, "cellname")) {      // cellname <square> <text>
+      int i, n = 0;
+      if (sscanf(rest, "%d %n", &i, &n) < 1 || !n || i < 0 || i >= FOLD_MAXSQ) FAIL("line %d: cellname <square> <text>", lineno);
+      strncpy(lv->sqname[i], rest + n, sizeof lv->sqname[i] - 1);
+    }
     else if (!strcmp(word, "square")) {
       int a[9];
       if (sscanf(rest, "%d %d %d %d %d %d %d %d %d", &a[0], &a[1], &a[2], &a[3], &a[4], &a[5], &a[6], &a[7], &a[8]) != 9) FAIL("line %d: square needs 9 numbers", lineno);
