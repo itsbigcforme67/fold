@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 enum { PAD_UP = 1, PAD_DOWN = 2, PAD_LEFT = 4, PAD_RIGHT = 8, PAD_A = 16, PAD_B = 32, PAD_X = 64, PAD_Y = 128,
-       PAD_L = 256, PAD_R = 512, PAD_START = 1024, PAD_BACK = 2048, PAD_RS = 4096 };   // RS: right stick click
+       PAD_L = 256, PAD_R = 512, PAD_START = 1024, PAD_BACK = 2048, PAD_RS = 4096, PAD_LS = 8192 };   // RS / LS: right / left stick click
 typedef struct { float lx, ly, rx, ry; unsigned held; } Pad;   // sticks -1..1 (y down = +1)
 
 void app_init(const char *levelsDir);   // where levels live (levels/ in the repo); starts on a new, empty level

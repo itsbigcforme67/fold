@@ -44,7 +44,7 @@ static void read_pad(SDL_GameController *c, Pad *p) {
     { SDL_CONTROLLER_BUTTON_DPAD_LEFT, PAD_LEFT }, { SDL_CONTROLLER_BUTTON_DPAD_RIGHT, PAD_RIGHT },
     { SDL_CONTROLLER_BUTTON_A, PAD_A }, { SDL_CONTROLLER_BUTTON_B, PAD_B }, { SDL_CONTROLLER_BUTTON_X, PAD_X },
     { SDL_CONTROLLER_BUTTON_Y, PAD_Y }, { SDL_CONTROLLER_BUTTON_START, PAD_START }, { SDL_CONTROLLER_BUTTON_BACK, PAD_BACK },
-    { SDL_CONTROLLER_BUTTON_RIGHTSTICK, PAD_RS },
+    { SDL_CONTROLLER_BUTTON_RIGHTSTICK, PAD_RS }, { SDL_CONTROLLER_BUTTON_LEFTSTICK, PAD_LS },
     { SDL_CONTROLLER_BUTTON_LEFTSHOULDER, PAD_L }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PAD_R } };   // white / black
   for (unsigned i = 0; i < sizeof M / sizeof M[0]; i++) if (SDL_GameControllerGetButton(c, M[i].b)) p->held |= M[i].bit;
   // the triggers are L and R too (the Duke's white / black come through as the shoulder buttons)

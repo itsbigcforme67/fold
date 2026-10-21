@@ -57,6 +57,7 @@ static int co[3], ce1[3] = { 1, 0, 0 }, ce2[3] = { 0, 1, 0 };
 static int Fn[3] = { 0, 0, 1 }, Fr[3] = { 1, 0, 0 }, Fu[3] = { 0, 1, 0 };
 static Vec3 vn = { 0, 0, 1 }, vr = { 1, 0, 0 }, vu = { 0, 1, 0 };
 static float orbit = 0, pitch = 0.9f, dist = 5.5f;
+static int flipT, flipN[3], flipR[3];   // swinging round to the other side: the second quarter turn, after flipT frames
 static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
@@ -288,6 +289,7 @@ static void camera_reset(void) {
   vn = iv(Fn); vr = iv(Fr); vu = iv(Fu); orbit = 0; pitch = 0.9f;
 }
 static void camera(void) {
+  if (flipT && !--flipT) { memcpy(Fn, flipN, sizeof Fn); memcpy(Fr, flipR, sizeof Fr); }
   Vec3 c = cur_centre();
   look.x += (c.x - look.x) * 0.25f; look.y += (c.y - look.y) * 0.25f; look.z += (c.z - look.z) * 0.25f;
   vn = vnormz(vmix(vn, iv(Fn), 0.25f)); vr = vmix(vr, iv(Fr), 0.25f);   // ease the frame, keep it square
@@ -336,6 +338,12 @@ static void fold_plane(int sd) {
   int same = a[0] == ax[0] && a[1] == ax[1] && a[2] == ax[2];
   for (int i = 0; i < 3; i++) { Fn[i] = a[i]; ax[i] = same ? -n0[i] : n0[i]; }
 }
+static void flip_side(void) {                  // left stick click: round to the other side of the cell (two quarter turns)
+  for (int i = 0; i < 3; i++) { flipN[i] = -Fn[i]; flipR[i] = -Fr[i]; }
+  int n[3]; memcpy(n, Fn, sizeof n);
+  for (int i = 0; i < 3; i++) { Fn[i] = Fr[i]; Fr[i] = -n[i]; }   // half way: looking along the plane
+  flipT = 8;
+}
 static void turn_view(int dir) {                // L / R: a quarter turn of the frame about the plane's normal
   int r[3], u[3];
   for (int i = 0; i < 3; i++) { r[i] = dir > 0 ? -Fu[i] : Fu[i]; u[i] = dir > 0 ? Fr[i] : -Fr[i]; }
@@ -368,19 +376,26 @@ static void shape_frame(const Pad *p) {
   if (stick_rep(p->lx, p->ly, &d)) fold_plane(PADDIR[d]);   // the left stick rolls the plane round the shape
   if (pressed(p, PAD_L)) turn_view(-1);
   if (pressed(p, PAD_R)) turn_view(1);
+  if (pressed(p, PAD_LS) && !flipT) flip_side();
   if (p->held & PAD_BACK) { dist *= 1 + p->ry * 0.04f; if (dist < 1.2f) dist = 1.2f; if (dist > 20) dist = 20; }   // BACK + right stick: zoom
   else { orbit += p->rx * 0.06f; pitch -= p->ry * 0.05f; }   // right stick: look round
   if (pitch > 1.5f) pitch = 1.5f; if (pitch < 0.15f) pitch = 0.15f;
   int i = find_sq(co, ce1, ce2);
+  // A and B work on the side of the cell facing you: A places a cell, or a room on an empty back (the
+  // checkerboard); B clears a back room to nothing again, or removes the cell (from its front or an empty back)
+  int f = i >= 0 ? sq_face_toward_eye(i) : -1, has = f >= 0 && (sides[i] >> (f & 1) & 1);
   if (pressed(p, PAD_A)) {
-    if (i >= 0) say("A CELL IS ALREADY THERE");
-    else { int nc[3]; facing_normal(nc); if (add_sq(nc) >= 0) say("CELL PLACED"); }
+    if (i < 0) { int nc[3]; facing_normal(nc); if (add_sq(nc) >= 0) say("CELL PLACED"); }
+    else if (!has) { make_room(f); say("ROOM ADDED ON THE BACK"); }
+    else say("A CELL IS ALREADY THERE");
   }
-  if (pressed(p, PAD_B) && i >= 0) { remove_sq(i); say("CELL REMOVED"); }
+  if (pressed(p, PAD_B) && i >= 0) {
+    if ((f & 1) && has) { clear_face(f); sides[i] &= ~2; say("BACK ROOM REMOVED"); }
+    else { remove_sq(i); say("CELL REMOVED"); }
+  }
   if (pressed(p, PAD_X) && i >= 0) {
-    rf = sq_face_toward_eye(i);
-    if (!(sides[i] >> (rf & 1) & 1)) make_room(rf);
-    rrot = open_rot(rf); mode = M_ROOM;
+    if (!has) say("NO ROOM HERE: A ADDS ONE");
+    else { rf = f; rrot = open_rot(rf); mode = M_ROOM; }
   }
   if (pressed(p, PAD_Y) && i >= 0) { propSq = i; prow = 0; propsBack = M_SHAPE; mode = M_PROPS; }
   if (pressed(p, PAD_START)) { mrow = 0; mode = M_MENU; }
@@ -518,11 +533,11 @@ static int func_ok(int i, const FoldAct *a) {   // a shift / hinge must not land
   tmp[i] = fold_geo_pose(L.sq[i], a);
   return !fold_overlap(tmp, L.nsq);
 }
-enum { P_MOVE, P_SIGNAL, P_TURNMODE, P_BACK, P_DELETE };
+enum { P_MOVE, P_SIGNAL, P_TURNMODE, P_DELETE };
 static int prop_rows(int i, int *rows) {      // which rows the cell settings show
   int n = 0; rows[n++] = P_MOVE; rows[n++] = P_SIGNAL;
   if (func[i].kind == 'r' || func[i].kind == 'R') rows[n++] = P_TURNMODE;
-  rows[n++] = P_BACK; rows[n++] = P_DELETE;
+  rows[n++] = P_DELETE;
   return n;
 }
 static void props_frame(const Pad *p) {
@@ -541,11 +556,9 @@ static void props_frame(const Pad *p) {
         }
       } else if (r == P_SIGNAL) trig[i] = sig_cycle(trig[i], st, 1);
       else if (r == P_TURNMODE) func[i].kind = func[i].kind == 'r' ? 'R' : 'r';
-      else if (r == P_BACK) { if (sides[i] & 2) { sides[i] &= ~2; clear_face(2 * i + 1); } else make_room(2 * i + 1); }
     }
   }
   if (pressed(p, PAD_A) && rows[prow] == P_DELETE) { remove_sq(i); mode = M_SHAPE; say("CELL REMOVED"); return; }
-  if (rows[prow] == P_BACK && !(sides[i] & 2) && propsBack == M_ROOM && rf == 2 * i + 1) propsBack = M_SHAPE;   // its room went
   if (pressed(p, PAD_B) || pressed(p, PAD_Y)) mode = propsBack;
 }
 
@@ -1117,7 +1130,6 @@ void app_draw(void) {
         case P_MOVE: snprintf(r, sizeof r, "MOVE: %s", FUNCS[func_index(&func[i])]); break;
         case P_SIGNAL: if (trig[i]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", trig[i]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
         case P_TURNMODE: snprintf(r, sizeof r, "TURNS: %s", func[i].kind == 'R' ? "WHILE ON, BACK WHEN OFF" : "A QUARTER EACH CHANGE"); break;
-        case P_BACK: snprintf(r, sizeof r, "BACK SIDE: %s", sides[i] & 2 ? "ON" : "OFF"); break;
         default: snprintf(r, sizeof r, "DELETE CELL  (A)");
       }
       row(140, 156 + k * 26, 370, k == prow, r);
