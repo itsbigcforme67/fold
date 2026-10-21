@@ -161,6 +161,19 @@ int main(void) {
   { char t[200]; fold_describe(&g, CELL(0, 6, 6), t, sizeof t); printf("   gate says:  %s\n", t); CHECK("talk: a delayed step limit", strstr(t, "3 MOVES") && strstr(t, "2 MOVES LATER")); }
   fold_undo(&g); fold_undo(&g); CHECK("delay: undone", !OPEN(6, 6) && OPEN(4, 6));
   { FoldGame t2 = g; while (fold_undo(&t2)) {} g = t2; CHECK("timers: undo to the start", !OPEN(2, 6) && !OPEN(4, 6) && !OPEN(6, 6) && g.moves == 0); }
+  // ---- signs: solid, read from beside; reading sends a signal (undoable, not a move); words switch; live values ----
+  load(level("########\n#......#\n#.p&.&.#\n#......#\n#......#\n#......#\n#...|..#\n########\n"
+             "signal 0 f 3 2 1\ndrive 0 f 4 6 1\ntext 0 f 3 2 YOU HAVE MOVED {MOVES} TIMES.\n"
+             "drive 0 f 5 2 1\ntext 0 f 5 2 THE GATE IS SHUT.\ntext2 0 f 5 2 THE GATE IS OPEN.\n"));
+  moves("r"); CHECK("sign: you can't walk into it", g.p == CELL(0, 2, 2) && g.moves == 0);
+  g.facing = 1;                                  // facing the sign (east)
+  { char t[200]; fold_describe(&g, CELL(0, 5, 2), t, sizeof t); CHECK("sign: its words while its signal is off", !strcmp(t, "THE GATE IS SHUT.")); }
+  CHECK("sign: reading it sends its signal (gate opens)", fold_read(&g, CELL(0, 3, 2)) && OPEN(4, 6) && g.moves == 0);
+  CHECK("sign: a second read changes nothing", !fold_read(&g, CELL(0, 3, 2)));
+  { char t[200]; fold_describe(&g, CELL(0, 5, 2), t, sizeof t); CHECK("sign: the other words while it is on", !strcmp(t, "THE GATE IS OPEN.")); }
+  moves("dd"); { char t[200]; fold_describe(&g, CELL(0, 3, 2), t, sizeof t); printf("   sign says:  %s\n", t); CHECK("sign: a live value in its words", !strcmp(t, "YOU HAVE MOVED 2 TIMES.")); }
+  fold_undo(&g); fold_undo(&g); CHECK("sign: undo the moves, still read", OPEN(4, 6) && g.moves == 0);
+  fold_undo(&g); CHECK("sign: undo the read (no move taken off)", !OPEN(4, 6) && g.moves == 0 && !fold_undo(&g));
   printf("%d tests, %d failed\n", tests, fails);
   return fails ? 1 : 0;
 }

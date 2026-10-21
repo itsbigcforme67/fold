@@ -26,7 +26,7 @@
 
 // tile kinds (kind[]): what a floor tile is, beyond plain floor. aux[] holds its value (a one-way's direction in its
 // cell's frame, ...). Walls, targets, boxes and buttons have their own arrays.
-enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6, FK_KEY = 7, FK_LOCK = 8, FK_GRATE = 9, FK_SENSOR = 10, FK_LIGHT = 11 };
+enum { FK_FLOOR = 0, FK_ICE = 1, FK_ONEWAY = 2, FK_PIT = 3, FK_TELE = 4, FK_PLATE = 5, FK_GATE = 6, FK_KEY = 7, FK_LOCK = 8, FK_GRATE = 9, FK_SENSOR = 10, FK_LIGHT = 11, FK_SIGN = 12 };
 // ONEWAY: aux = the only way in (0 up 1 right 2 down 3 left). TELE: aux = its pair (1-9; the two pads with it).
 // GATE: aux 0x80 = open, 0x40 = looks like a brick wall; a closed gate is a wall to anything entering.
 // KEY: picked up when you step on it (aux 0x80 = taken). LOCK: a wall, unless you walk in holding a key (it's used, the
@@ -78,7 +78,7 @@ typedef struct {
 } FoldSurface;
 
 // a move, for undo: where you were and the start of its changes in the journal
-typedef struct { int16_t p; uint8_t camf, camrot, pushed, facing; uint32_t j; } FoldUndo;
+typedef struct { int16_t p; uint8_t camf, camrot, pushed, facing, notmove; uint32_t j; } FoldUndo;   // notmove: reading a sign
 
 typedef struct {
   const FoldLevel *lv;
@@ -109,6 +109,12 @@ int fold_move(FoldGame *g, int screendir);   // 0 up 1 right 2 down 3 left, as o
 int fold_undo(FoldGame *g);                  // 1 = undone
 int fold_solved(const FoldGame *g);
 int fold_facing(const FoldGame *g);         // the tile you face (or -1)
+// reading a sign (tile c): the first read turns its signal on (undoable, not a move). Returns FOLD_* bits.
+int fold_read(FoldGame *g, int c);
+// the game's live values, for signs' {MOVES}-style words and keypads' codes
+enum { FV_NUMBER, FV_MOVES, FV_PUSHES, FV_FLIPS, FV_TURNS, FV_KEYS, FV_BOXES, FV_LIGHTS, FV_COUNT, FV_N };
+extern const char *FOLD_VALUE_NAMES[FV_N];   // "NUMBER" "MOVES" ... as typed in {..}; FV_COUNT: a counter piece's count
+int fold_value(const FoldGame *g, int which, int arg);   // arg: the number (FV_NUMBER) or the counter's signal (FV_COUNT)
 int fold_describe(const FoldGame *g, int c, char *out, int len);   // what a tile says when you talk to it (0 = nothing)
 void fold_to_screen(int fx, int fy, int rot, int *sx, int *sy);   // room cell -> screen cell, room turned by rot
 FoldSquare fold_geo_pose(FoldSquare q, const FoldAct *a);           // where a shift / hinge puts a square

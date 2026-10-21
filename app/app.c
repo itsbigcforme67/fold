@@ -62,8 +62,8 @@ static Vec3 look = { 0.5f, 0.5f, 0 }, eye;
 static Mat4 VPm;
 // room editor
 static int rf, rrot, rx = 3, ry = 3, item = 1, inPal, palFrom;   // inPal: the cursor is on the tile palette
-static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK", "GRATE", "SENSOR", "WALL GATE", "LIGHT" };
-#define NITEMS 18
+static const char *ITEMS[] = { "WALL", "FLOOR", "BOX", "TARGET", "BUTTON", "PLAYER", "ICE", "ONE-WAY", "PIT", "TELEPORTER", "PLATE", "GATE", "KEY", "LOCK", "GRATE", "SENSOR", "WALL GATE", "LIGHT", "SIGN" };
+#define NITEMS 19
 // settings / menu
 static int propFace, propRot;   // the side the cell settings' layout tools work on, and its turn on screen
 static int prow, mrow, fileIx, vmxWin = 0, propSq, propsBack = M_SHAPE, trow, tcell, wrow, wfield;
@@ -175,7 +175,7 @@ int app_save(const char *p) {
     if (!(sides[fc >> 1] >> (fc & 1) & 1)) continue;
     fprintf(f, "room %d %c\n", fc >> 1, fc & 1 ? 'b' : 'f');
     for (int y = 0; y < N; y++) { for (int x = 0; x < N; x++) { int c = fc * NN + y * N + x;
-      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' : L.kind[c] == FK_GATE ? (L.aux[c] & 0x40 ? (L.aux[c] & 0x80 ? ';' : '%') : L.aux[c] & 0x80 ? ':' : '|') : L.kind[c] == FK_SENSOR ? '*' : L.kind[c] == FK_LIGHT ? (L.aux[c] & 0x80 ? '$' : '@') : L.kind[c] == FK_KEY ? 'k' : L.kind[c] == FK_LOCK ? 'l' : L.kind[c] == FK_GRATE ? '+' :   // special floors: a box /
+      char ch = L.kind[c] == FK_ICE ? '~' : L.kind[c] == FK_ONEWAY ? "^>v<"[L.aux[c] & 3] : L.kind[c] == FK_PIT ? '_' : L.kind[c] == FK_TELE ? (char)('0' + L.aux[c]) : L.kind[c] == FK_PLATE ? '=' : L.kind[c] == FK_GATE ? (L.aux[c] & 0x40 ? (L.aux[c] & 0x80 ? ';' : '%') : L.aux[c] & 0x80 ? ':' : '|') : L.kind[c] == FK_SENSOR ? '*' : L.kind[c] == FK_LIGHT ? (L.aux[c] & 0x80 ? '$' : '@') : L.kind[c] == FK_KEY ? 'k' : L.kind[c] == FK_LOCK ? 'l' : L.kind[c] == FK_GRATE ? '+' : L.kind[c] == FK_SIGN ? '&' :   // special floors: a box /
         // the player on them goes on its own line
         L.wall[c] ? '#' : L.box[c] ? (L.target[c] ? 'B' : B.btn[c] ? 'O' : 'b') : c == L.player ? (L.target[c] ? 'P' : 'p') : L.target[c] ? 'x' : B.btn[c] ? 'o' : '.';
       fputc(ch, f); } fputc('\n', f); }
@@ -187,7 +187,8 @@ int app_save(const char *p) {
       char sd = fc & 1 ? 'b' : 'f';
       if (B.btn[c]) fprintf(f, "signal %d %c %d %d %d\n", fc >> 1, sd, c % N, (c / N) % N, B.btn[c]);
       if (B.drv[c]) fprintf(f, "drive %d %c %d %d %d\n", fc >> 1, sd, c % N, (c / N) % N, B.drv[c]);
-      if (L.txt[c]) fprintf(f, "text %d %c %d %d %s\n", fc >> 1, sd, c % N, (c / N) % N, L.text[L.txt[c] - 1]);
+      if (L.txt[c] && L.text[L.txt[c] - 1][0]) fprintf(f, "text %d %c %d %d %s\n", fc >> 1, sd, c % N, (c / N) % N, L.text[L.txt[c] - 1]);
+      if (L.kind[c] == FK_SIGN && L.aux[c] && L.text[L.aux[c] - 1][0]) fprintf(f, "text2 %d %c %d %d %s\n", fc >> 1, sd, c % N, (c / N) % N, L.text[L.aux[c] - 1]);
     }
   }
   if (B.allSig) fprintf(f, "input %d alltargets\n", B.allSig);
@@ -496,6 +497,12 @@ static void paint(int c, int what) {
       if (L.kind[c] == FK_LIGHT) { L.kind[c] = FK_FLOOR; L.btn[c] = L.drv[c] = 0; }
       else { L.kind[c] = FK_LIGHT; L.aux[c] = 0; if (!L.btn[c]) L.btn[c] = (uint8_t)next_signal(); say("X ON IT: WHAT LIGHTS IT"); }
       break;
+    case 18:                                  // a sign: words to read (X on it sets them); solid, read from beside it
+      if (c == L.player) return;
+      L.wall[c] = 0; L.box[c] = L.target[c] = 0;
+      if (L.kind[c] == FK_SIGN) { L.kind[c] = FK_FLOOR; L.btn[c] = L.drv[c] = L.aux[c] = L.txt[c] = 0; }
+      else { L.kind[c] = FK_SIGN; L.btn[c] = L.drv[c] = L.aux[c] = 0; say("X ON IT: ITS WORDS"); }
+      break;
     case 16:                                  // a gate that looks like brick wall (a wall that comes and goes)
       L.wall[c] = 0; L.btn[c] = 0;
       if (L.kind[c] == FK_GATE && (L.aux[c] & 0x40)) L.aux[c] ^= 0x80; else { L.kind[c] = FK_GATE; L.aux[c] = 0x40; say("X ON IT PICKS ITS SIGNAL"); }
@@ -543,21 +550,23 @@ static void room_layer(int dir) {            // to the same side of the cell sta
 }
 // ---- the on-screen keyboard: names, a sign's words, a keypad's code -------------------------------------------------
 static const char *KROWS[5] = { "ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ.,!?", "0123456789", "" };   // row 4: SPACE DEL DONE
-static char *kbBuf; static int kbMax, kbBack, kbX, kbY; static const char *kbTitle;
-static void keys_open(char *buf, int max, const char *title) { kbBuf = buf; kbMax = max; kbTitle = title; kbBack = mode; kbX = kbY = 0; mode = M_KEYS; }
+static char *kbBuf; static int kbMax, kbBack, kbX, kbY, kbTokens; static const char *kbTitle;   // kbTokens: a row of live values
+static const char *KTOK[7] = { "MOVES", "PUSHES", "FLIPS", "TURNS", "KEYS", "BOXES", "LIGHTS" };
+static int krow_w(int y) { return y < 4 ? 10 : y == 4 ? 3 : 7; }
+static void keys_open(char *buf, int max, const char *title) { kbBuf = buf; kbMax = max; kbTitle = title; kbBack = mode; kbX = kbY = 0; kbTokens = 0; mode = M_KEYS; }
 static void keys_frame(const Pad *p) {
   int d, n = (int)strlen(kbBuf);
   if (dpad_rep(p, &d) || stick_rep(p->lx, p->ly, &d)) {
-    int sd = PADDIR[d], w = kbY == 4 ? 3 : 10;
+    int sd = PADDIR[d], w = krow_w(kbY), rows = kbTokens ? 6 : 5;
     if (sd == 1) kbX = (kbX + 1) % w; else if (sd == 3) kbX = (kbX + w - 1) % w;
-    else {                                    // up / down: keep roughly the same place across the wide bottom keys
-      int ny = (kbY + (sd == 2 ? 1 : 4)) % 5;
-      if (kbY == 4 && ny != 4) kbX = kbX * 3 + 1; else if (ny == 4) kbX = kbX / 4 > 2 ? 2 : kbX / 4;
-      kbY = ny;
+    else {                                    // up / down: keep roughly the same place across rows of other widths
+      int ny = (kbY + (sd == 2 ? 1 : rows - 1)) % rows, wn = krow_w(ny);
+      kbX = ((2 * kbX + 1) * wn) / (2 * w); kbY = ny;
     }
   }
   if (pressed(p, PAD_A)) {
-    if (kbY < 4) { if (n < kbMax) { kbBuf[n] = KROWS[kbY][kbX]; kbBuf[n + 1] = 0; } }
+    if (kbY == 5) { char tk[16]; snprintf(tk, sizeof tk, "{%s}", KTOK[kbX]); if (n + (int)strlen(tk) <= kbMax) strcat(kbBuf, tk); }
+    else if (kbY < 4) { if (n < kbMax) { kbBuf[n] = KROWS[kbY][kbX]; kbBuf[n + 1] = 0; } }
     else if (kbX == 0) { if (n < kbMax && n) { kbBuf[n] = ' '; kbBuf[n + 1] = 0; } }
     else if (kbX == 1) { if (n) kbBuf[n - 1] = 0; }
     else mode = kbBack;
@@ -569,16 +578,19 @@ static void keys_frame(const Pad *p) {
 static void hints(const char **pairs, int n);
 static void keys_draw(void) {
   gfx_dim(0, 0, GW, GH, 0.5f);
-  gfx_panel(100, 110, 440, 290, kbTitle, C_HI);
-  char line[40]; snprintf(line, sizeof line, "%s%s", kbBuf, (t >> 3) & 1 ? "_" : " ");
-  gfx_rect(120, 156, 400, 30, 0x0a120a); gfx_text5(130, 164, 2, 0xe8ffd8, line);
-  for (int y = 0; y < 5; y++) {
-    int w = y == 4 ? 3 : 10;
+  int rows = kbTokens ? 6 : 5, top = kbTokens ? 70 : 110;
+  gfx_panel(100, top, 440, 290 + (kbTokens ? 40 : 0), kbTitle, C_HI);
+  char line[48]; int n = (int)strlen(kbBuf); const char *tail = n > 30 ? kbBuf + n - 30 : kbBuf;   // the last 30 typed
+  snprintf(line, sizeof line, "%s%s", tail, (t >> 3) & 1 ? "_" : " ");
+  gfx_rect(120, top + 46, 400, 30, 0x0a120a); gfx_text5(130, top + 54, 2, 0xe8ffd8, line);
+  for (int y = 0; y < rows; y++) {
+    int w = krow_w(y);
     for (int x = 0; x < w; x++) {
-      int bw = y == 4 ? 124 : 36, bx = 128 + x * (y == 4 ? 130 : 39), by = 202 + y * 38, sel = x == kbX && y == kbY;
+      int bw = y < 4 ? 36 : y == 4 ? 124 : 52, bx = 128 + x * (y < 4 ? 39 : y == 4 ? 130 : 55), by = top + 92 + y * 38, sel = x == kbX && y == kbY;
       gfx_rect(bx, by, bw, 32, sel ? 0x2f5a24 : 0x141c12); if (sel) gfx_frame(bx, by, bw, 32, C_HI);
-      char k[8]; if (y < 4) { k[0] = KROWS[y][x]; k[1] = 0; } else snprintf(k, sizeof k, "%s", x == 0 ? "SPACE" : x == 1 ? "DEL" : "DONE");
-      gfx_text5(bx + bw / 2 - gfx_text5_w(2, k) / 2, by + 9, 2, sel ? 0xe8ffd8 : C_TEXT, k);
+      char k[8]; if (y < 4) { k[0] = KROWS[y][x]; k[1] = 0; } else if (y == 4) snprintf(k, sizeof k, "%s", x == 0 ? "SPACE" : x == 1 ? "DEL" : "DONE"); else snprintf(k, sizeof k, "%s", KTOK[x]);
+      int sc = y == 5 ? 1 : 2;
+      gfx_text5(bx + bw / 2 - gfx_text5_w(sc, k) / 2, by + (sc == 2 ? 9 : 12), sc, y == 5 ? 0xf2e01c : sel ? 0xe8ffd8 : C_TEXT, k);
     }
   }
   const char *h[] = { "DPAD", "KEY", "A", "TYPE", "B", "DELETE", "START", "DONE" }; hints(h, 4);
@@ -725,11 +737,12 @@ static void props_frame(const Pad *p) {
 }
 
 // ---- tile settings (Y on a tile in the cell editor) ---------------------------------------------------------------
-enum { T_SENDS, T_WORKED, T_STARTS, T_LOOKS, T_CELL };
-static int sends_ok(int c) { return L.kind[c] == FK_PLATE || L.kind[c] == FK_SENSOR || L.kind[c] == FK_KEY || L.kind[c] == FK_LIGHT || L.target[c] || (L.btn[c] && L.kind[c] == FK_FLOOR); }
-static int worked_ok(int c) { return L.kind[c] == FK_GATE || L.kind[c] == FK_TELE || L.kind[c] == FK_ONEWAY || L.kind[c] == FK_LIGHT; }
+enum { T_WORDS, T_WORDS2, T_SENDS, T_WORKED, T_STARTS, T_LOOKS, T_CELL };
+static int sends_ok(int c) { return L.kind[c] == FK_SIGN || L.kind[c] == FK_PLATE || L.kind[c] == FK_SENSOR || L.kind[c] == FK_KEY || L.kind[c] == FK_LIGHT || L.target[c] || (L.btn[c] && L.kind[c] == FK_FLOOR); }
+static int worked_ok(int c) { return L.kind[c] == FK_SIGN || L.kind[c] == FK_GATE || L.kind[c] == FK_TELE || L.kind[c] == FK_ONEWAY || L.kind[c] == FK_LIGHT; }
 static int tile_rows(int c, int *rows) {
   int n = 0;
+  if (L.kind[c] == FK_SIGN) { rows[n++] = T_WORDS; rows[n++] = T_WORDS2; }
   if (sends_ok(c)) rows[n++] = T_SENDS;
   if (worked_ok(c)) rows[n++] = T_WORKED;
   if (L.kind[c] == FK_GATE) { rows[n++] = T_STARTS; rows[n++] = T_LOOKS; }
@@ -752,6 +765,12 @@ static void tile_frame(const Pad *p) {
       else if (r == T_STARTS) L.aux[c] ^= 0x80;   // a gate open / shut, a teleporter off / on
       else if (r == T_LOOKS) L.aux[c] ^= 0x40;
     }
+  }
+  if (pressed(p, PAD_A) && (rows[trow] == T_WORDS || rows[trow] == T_WORDS2)) {   // a sign's words: the keyboard
+    int two = rows[trow] == T_WORDS2, k = two ? L.aux[c] : L.txt[c];
+    if (!k) { if (L.ntext == FOLD_MAXTEXT) { say("TOO MANY TEXTS IN THIS LEVEL"); return; } L.text[L.ntext][0] = 0; k = ++L.ntext; if (two) L.aux[c] = (uint8_t)k; else L.txt[c] = (uint8_t)k; }
+    keys_open(L.text[k - 1], FOLD_TEXTLEN - 1, two ? "ITS WORDS WHILE ITS SIGNAL IS ON" : "THE SIGN SAYS"); kbTokens = 1;
+    return;
   }
   if (pressed(p, PAD_A) && rows[trow] == T_CELL) { propSq = rf >> 1; propFace = rf; propRot = rrot; prow = 0; propsBack = M_ROOM; mode = M_PROPS; return; }
   if (pressed(p, PAD_B) || pressed(p, PAD_X)) mode = M_ROOM;
@@ -851,8 +870,9 @@ static void play_frame(const Pad *p) {
     if (popWord) popT = 30;
     if (fold_solved(&G)) wonT = 1;
   }
-  if (pressed(p, PAD_A)) {                    // talk to the tile you face (or the one you stand on)
+  if (pressed(p, PAD_A)) {                    // talk to the tile you face (or the one you stand on); reading a sign may send
     int c = fold_facing(&G);
+    if (c >= 0 && G.kind[c] == FK_SIGN) fold_read(&G, c);
     if (!fold_describe(&G, c, talk, sizeof talk)) fold_describe(&G, G.p, talk, sizeof talk);
     if (talk[0]) { talkOn = 1; talkPage = 0; }
   }
@@ -991,6 +1011,11 @@ static void room_3d(int f) {                  // the contents of side f, standin
       Tex post = { 1, 1, postPx }, lamp = { 1, 1, (L.aux[c] & 0x80) ? onPx : offPx };
       block(vadd(p, vadd(vsc(du, 0.38f), vsc(dv, 0.38f))), vsc(du, 0.24f), vsc(dv, 0.24f), n, cs * 0.9f, &post, &post, NULL);
       block(vadd(vadd(p, vadd(vsc(du, 0.22f), vsc(dv, 0.22f))), vsc(n, cs * 0.9f)), vsc(du, 0.56f), vsc(dv, 0.56f), n, cs * 0.5f, &lamp, &lamp, NULL);
+    } else if (L.kind[c] == FK_SIGN) {         // a sign: a post with a wooden board on top
+      static uint32_t woodPx[1] = { 0xc8a468 }, postPx[1] = { 0x5a4428 };
+      Tex wood = { 1, 1, woodPx }, post = { 1, 1, postPx };
+      block(vadd(p, vadd(vsc(du, 0.44f), vsc(dv, 0.44f))), vsc(du, 0.12f), vsc(dv, 0.12f), n, cs * 0.7f, &post, &post, NULL);
+      block(vadd(vadd(p, vadd(vsc(du, 0.12f), vsc(dv, 0.42f))), vsc(n, cs * 0.55f)), vsc(du, 0.76f), vsc(dv, 0.16f), n, cs * 0.6f, &wood, &wood, NULL);
     } else if (L.kind[c] == FK_LOCK) {         // a lock: a gold block with a keyhole
       block(p, du, dv, n, GAP, &lockTx, &lockTx, NULL);
     } else if (L.kind[c] == FK_KEY && !L.box[c] && c != L.player) {   // a key: a gold ring and stem standing up
@@ -1173,7 +1198,7 @@ static int draw_vmx(int x, int y, int scale, const uint8_t *b) {
 static uint32_t item_colour(int k) {          // a palette icon's colour (the tile's colour in 3D)
   switch (k) { case 0: case 16: return 0x7dff3a; case 2: return 0xe0c070; case 5: return 0xf2f6ff; case 6: return 0xbfefff; case 7: return 0xffd040;
                case 8: return 0x8a9a86; case 9: return 0xe070ff; case 10: return 0xff9a3c; case 11: return 0x9fb4c8; case 12: case 13: return 0xffc83c;
-               case 14: return 0xa0a8a0; case 17: return 0xfff27a; }
+               case 14: return 0xa0a8a0; case 17: return 0xfff27a; case 18: return 0xd8b878; }
   return 0x7dff3a;
 }
 // the whole level, small, under the tile palette: it follows the room being edited (yellow), seen from above it and
@@ -1405,8 +1430,11 @@ void app_draw(void) {
     for (int k = 0; k < nr; k++) {
       char r[64];
       switch (rows[k]) {
-        case T_SENDS: if (L.btn[c]) snprintf(r, sizeof r, "SENDS SIGNAL: %d", L.btn[c]); else snprintf(r, sizeof r, "SENDS SIGNAL: NONE"); break;
-        case T_WORKED: if (L.drv[c]) snprintf(r, sizeof r, "WORKED BY SIGNAL: %d", L.drv[c]); else snprintf(r, sizeof r, "WORKED BY SIGNAL: NONE"); break;
+        case T_WORDS: snprintf(r, sizeof r, "WORDS: %.40s  (A)", L.txt[c] ? L.text[L.txt[c] - 1] : "-"); break;
+        case T_WORDS2: snprintf(r, sizeof r, "WORDS WHILE ON: %.33s  (A)", L.aux[c] ? L.text[L.aux[c] - 1] : "-"); break;
+        case T_SENDS: if (L.btn[c]) snprintf(r, sizeof r, "%s: %d", L.kind[c] == FK_SIGN ? "READING IT SENDS" : "SENDS SIGNAL", L.btn[c]); else snprintf(r, sizeof r, "%s: NONE", L.kind[c] == FK_SIGN ? "READING IT SENDS" : "SENDS SIGNAL"); break;
+        case T_WORKED: { const char *w = L.kind[c] == FK_SIGN ? "OTHER WORDS WHILE SIGNAL" : "WORKED BY SIGNAL";
+          if (L.drv[c]) snprintf(r, sizeof r, "%s: %d", w, L.drv[c]); else snprintf(r, sizeof r, "%s: NONE", w); break; }
         case T_STARTS: snprintf(r, sizeof r, "STARTS: %s", L.kind[c] == FK_TELE ? (L.aux[c] & 0x80 ? "OFF" : "ON") : L.kind[c] == FK_LIGHT ? (L.aux[c] & 0x80 ? "LIT" : "DARK") : (L.aux[c] & 0x80 ? "OPEN" : "SHUT")); break;
         case T_LOOKS: snprintf(r, sizeof r, "LOOKS LIKE: %s", L.aux[c] & 0x40 ? "A BRICK WALL" : "A GATE"); break;
         default: snprintf(r, sizeof r, "CELL SETTINGS  (A)");

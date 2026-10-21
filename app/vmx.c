@@ -26,6 +26,7 @@ static const char *GRATE[7] = { "#.#.#.#", ".......", "#.#.#.#", ".......", "#.#
 static const char *LIGHT_OFF[7] = { "..###..", ".#...#.", ".#...#.", "..#.#..", "..###..", "..###..", "......." };
 static const char *LIGHT_ON[7] = { "#.###.#", ".#####.", ".#####.", "#.###.#", "..###..", "..###..", "......." };
 static const char *SENSOR[7] = { ".......", "...#...", "..#.#..", ".#.#.#.", "..#.#..", "...#...", "......." };
+static const char *SIGN[7] = { "#######", "#.....#", "#.###.#", "#.....#", "#######", "...#...", "...#..." };
 static const char *BRICK[7] = { "######.", "######.", "######.", ".......", "##.####", "##.####", "......." };
 static const char *BUTTON[7] = { ".......", ".#####.", ".#...#.", ".#.#.#.", ".#...#.", ".#####.", "......." };
 
@@ -68,6 +69,7 @@ void vmx_room(uint8_t *b, const uint8_t *wall, const uint8_t *target, const uint
       else if (kind[c] == FK_GRATE) sprite(b, x, y, GRATE);
       else if (kind[c] == FK_LIGHT) sprite(b, x, y, aux[c] & 0x80 ? LIGHT_ON : LIGHT_OFF);
       else if (kind[c] == FK_SENSOR) sprite(b, x, y, SENSOR);
+      else if (kind[c] == FK_SIGN) sprite(b, x, y, SIGN);
       else if (e >= 0 && !wall[e]) arrow(b, x, y, (out - rot) & 3);
       else sprite(b, x, y, kind[c] == FK_ICE ? ICE : FLOOR);
     }
@@ -121,7 +123,7 @@ const char **vmx_icon(const char *n) {
   static const struct { const char *name; const char **spr; } T[] = {
     { "WALL", BRICK }, { "FLOOR", FLOOR }, { "BOX", VMX_BOX }, { "TARGET", TARGET }, { "BUTTON", BUTTON }, { "PLAYER", VMX_MAN },
     { "ICE", ICE }, { "ONE-WAY", ONEWAY }, { "PIT", PIT }, { "TELEPORTER", TELE }, { "PLATE", PLATE }, { "GATE", GATE_SHUT },
-    { "KEY", KEY }, { "LOCK", LOCK }, { "GRATE", GRATE }, { "SENSOR", SENSOR }, { "WALL GATE", BRICK }, { "LIGHT", LIGHT_ON } };
+    { "KEY", KEY }, { "LOCK", LOCK }, { "GRATE", GRATE }, { "SENSOR", SENSOR }, { "WALL GATE", BRICK }, { "LIGHT", LIGHT_ON }, { "SIGN", SIGN } };
   for (unsigned i = 0; i < sizeof T / sizeof T[0]; i++) if (!strcmp(T[i].name, n)) return T[i].spr;
   return FLOOR;
 }

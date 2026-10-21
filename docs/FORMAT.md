@@ -34,6 +34,12 @@ a key: it's used up and the lock becomes floor; boxes can't open it), `+` grate 
 A box or the player starting on any other kind of tile: `box <square> <f|b> <x> <y>` / `player <square> <f|b> <x> <y>`
 after the room block. A side with no `room` block is all wall. The outer ring of a room is wall except for doorways.
 
+A sign: `&` in a room (solid: you read it from beside it with A). Its words: `text <square> <f|b> <x> <y> <words>`;
+the words it shows while the signal driving it is on: `text2 ...` (and `drive ... <signal>`). Reading it the first time
+turns on the signal it sends (`signal ...`); that can be undone and doesn't count as a move. Words may hold live
+values, filled in when read: `{MOVES}` `{PUSHES}` `{FLIPS}` `{TURNS}` `{KEYS}` `{BOXES}` (boxes on targets) `{LIGHTS}`
+(lights on) and `{COUNT <signal>}` (how far the counter sending that signal has counted).
+
 A cell's name: `cellname <square> <text>` (up to 15 characters; shown in the editor, and on the VMX as you walk in).
 
 A level with no player loads (an unfinished one, saved from the editor); playing it needs one.
