@@ -14,6 +14,7 @@ int app_load(const char *path);         // 1 = ok
 int app_save(const char *path);
 void app_frame(const Pad *pad);         // one 30 Hz tick
 void app_draw(void);                    // into gfx_px
-int app_quit(void);
-int app_state(char *b, int n);          // the editor's state as a line of text (for comparing runs)                     // the menu's QUIT was chosen
+int app_quit(void);                     // the menu's QUIT was chosen
+void app_usb_init(void);                // Xbox: before SDL starts USB (an app adds its USB drivers here)
+int app_state(char *b, int n);          // the editor's state as a line of text (for comparing runs)
 #endif

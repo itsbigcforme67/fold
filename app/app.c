@@ -1083,6 +1083,7 @@ static void play_frame(const Pad *p) {
 // ---- frame -------------------------------------------------------------------------------------------------------
 void app_init(const char *dir) { snprintf(levelsDir, sizeof levelsDir, "%s", dir); new_level(); }
 int app_quit(void) { return quit; }
+void app_usb_init(void) {}
 int app_state(char *b, int n) {                // a line of the editor's state, for comparing runs (tests)
   return snprintf(b, (size_t)n, "m%d r%d,%d,%d,%d p%d w%d,%d i%d c%d s%d l%d,%d", mode, rx, ry, rf, rrot, mrow, wcur, wport, item, L.nsq, L.player, L.nlogic, L.logic[0].op);
 }

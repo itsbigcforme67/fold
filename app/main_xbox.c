@@ -56,6 +56,7 @@ static void read_pad(SDL_GameController *c, Pad *p) {
 
 int main(void) {
   XVideoSetMode(640, 480, 32, REFRESH_DEFAULT);
+  app_usb_init();                              // (before SDL, so USB drivers an app adds see devices plugged in at start)
   SDL_Init(SDL_INIT_GAMECONTROLLER);           // (before pbkit, as nxdk's samples do)
   int gpu = gpu_init();                         // the 3D scene on the GPU; without it, the software picture as before
   app_init("D:\\levels");
