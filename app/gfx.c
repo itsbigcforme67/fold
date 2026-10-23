@@ -572,47 +572,44 @@ static void homography(const float src[4][2], const float dst[4][2], float H[9])
 static void happly(const float H[9], float x, float y, float *u, float *v) {
   float w = H[6] * x + H[7] * y + H[8]; *u = (H[0] * x + H[1] * y + H[2]) / w; *v = (H[3] * x + H[4] * y + H[5]) / w;
 }
-void gfx_plate_begin(int x, int y, int w, int h) {       // keeps what's behind, then a glass plate to draw on
+void gfx_plate_begin(int x, int y, int w, int h) {       // keeps what's behind, then a plain glass panel to draw on
   if (w > GW || h > 200) return;
   for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) { int X = x + i, Y = y + j; plateBg[j * w + i] = (X >= 0 && Y >= 0 && X < GW && Y < GH) ? gfx_px[Y * GW + X] : 0; }
-  gfx_glass(x, y, w, h);
-  for (int j = 0; j < h; j += 4) gfx_add_rect(x, y + j, w, 1, 0x000802);          // faint ruled lines on the glass
+  gfx_hpanel(x + 1, y + 1, w - 2, h - 2, NULL, GFX_HG);   // (its brackets reach a pixel out: kept inside what turns)
 }
-void gfx_plate_end(int x, int y, int w, int h, int side, float turn) {
+// the flat panel as the texture of a plane hinged on its outer edge (side -1: the left edge, +1: the right) and
+// turned into the screen by `ang` radians (0 flat, pi/2 edge-on: folded away), in perspective
+void gfx_plate_end(int x, int y, int w, int h, int side, float ang) {
   if (w > GW || h > 200) return;
-  for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {   // take the flat plate, put back what was behind
+  for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {   // take the flat panel, put back what was behind
     int X = x + i, Y = y + j; if (X < 0 || Y < 0 || X >= GW || Y >= GH) continue;
     plateFg[j * w + i] = gfx_px[Y * GW + X]; gfx_px[Y * GW + X] = plateBg[j * w + i];
   }
-  // the quad: the outer edge full height, the inner edge shorter and pulled in (turned away by `turn`, 0..0.4)
-  float sh = h * turn * 0.5f, in = w * turn * 0.35f;
-  float src[4][2] = { { 0, 0 }, { (float)w, 0 }, { (float)w, (float)h }, { 0, (float)h } }, dst[4][2];
-  if (side < 0) { float d[4][2] = { { 0, 0 }, { w - in, sh }, { w - in, h - sh }, { 0, (float)h } }; memcpy(dst, d, sizeof d); }
-  else { float d[4][2] = { { in, sh }, { (float)w, 0 }, { (float)w, (float)h }, { in, h - sh } }; memcpy(dst, d, sizeof d); }
-  for (int k = 0; k < 4; k++) { dst[k][0] += x; dst[k][1] += y; }
-  float H[9], Hi[9]; homography(dst, src, Hi); homography(src, dst, H);
-  int cut = h / 5;                                         // cut corners: top outer and bottom inner
-  for (int Y = y; Y < y + h; Y++) for (int X = x; X < x + w; X++) {
+  if (ang > 1.55f) return;                                 // edge-on: folded away
+  const float F = 520;                                     // the eye's distance from the screen, in pixels
+  float hx = side < 0 ? (float)x : (float)(x + w), dir = side < 0 ? 1.f : -1.f, cy = y + h * 0.5f;
+  float ca = cosf(ang), sa = sinf(ang), q[4][2];
+  // the far (inner) edge: w along the plane, so w cos(ang) across the screen and w sin(ang) deeper
+  float k = F / (F + w * sa), fx = hx + dir * w * ca * k;
+  float src[4][2], H[9], Hi[9];
+  if (side < 0) {                                          // corners in the flat panel's pixels: TL TR BR BL
+    float a[4][2] = { { 0, 0 }, { (float)w, 0 }, { (float)w, (float)h }, { 0, (float)h } }; memcpy(src, a, sizeof a);
+    float b[4][2] = { { hx, (float)y }, { fx, cy - h * 0.5f * k }, { fx, cy + h * 0.5f * k }, { hx, (float)(y + h) } }; memcpy(q, b, sizeof b);
+  } else {
+    float a[4][2] = { { 0, 0 }, { (float)w, 0 }, { (float)w, (float)h }, { 0, (float)h } }; memcpy(src, a, sizeof a);
+    float b[4][2] = { { fx, cy - h * 0.5f * k }, { hx, (float)y }, { hx, (float)(y + h) }, { fx, cy + h * 0.5f * k } }; memcpy(q, b, sizeof b);
+  }
+  homography(q, src, Hi); homography(src, q, H);
+  int x0 = (int)fminf(hx, fx), x1 = (int)fmaxf(hx, fx);
+  for (int Y = y; Y < y + h; Y++) for (int X = x0; X <= x1; X++) {
     if (X < 0 || Y < 0 || X >= GW || Y >= GH) continue;
     float u, v; happly(Hi, X + .5f, Y + .5f, &u, &v);
     if (u < 0 || v < 0 || u >= w || v >= h) continue;
-    float ou = side < 0 ? u : w - u;                       // distance from the outer edge
-    if (ou + v < cut || (w - ou) + (h - v) < cut) continue;
     gfx_px[Y * GW + X] = plateFg[(int)v * w + (int)u];
   }
-  // the edges, crisp on top: the outline with its cut corners, brighter on the outer edge, ticks along it
-  float P[6][2], o = side < 0 ? 0 : (float)w, ii = side < 0 ? (float)w : 0, dir = side < 0 ? 1.f : -1.f;
-  float pts[6][2] = { { o, (float)cut }, { o + dir * cut, 0 }, { ii, 0 }, { ii, h - (float)cut }, { ii - dir * cut, (float)h }, { o, (float)h } };
-  for (int k = 0; k < 6; k++) happly(H, pts[k][0], pts[k][1], &P[k][0], &P[k][1]);
-  for (int k = 0; k < 6; k++) {
-    int a = k, b = (k + 1) % 6; uint32_t c = (k == 5 || k == 0) ? GFX_HG : GFX_HG_EDGE;
-    gfx_line((int)P[a][0], (int)P[a][1], (int)P[b][0], (int)P[b][1], c);
-    if (k == 5) gfx_line((int)P[a][0] + (side < 0 ? 1 : -1), (int)P[a][1], (int)P[b][0] + (side < 0 ? 1 : -1), (int)P[b][1], GFX_HG);   // the outer edge, thicker
-  }
-  for (int t = 1; t < 6; t++) {                            // ticks along the outer edge
-    float ty = cut + (h - cut) * t / 6.0f, a0, b0, a1, b1;
-    happly(H, o, ty, &a0, &b0); happly(H, o + dir * 6, ty, &a1, &b1);
-    gfx_line((int)a0, (int)b0, (int)a1, (int)b1, GFX_HG_EDGE);
+  for (int e = 0; e < 4; e++) {                            // its edges, crisp: the hinge (outer) edge brightest
+    int a = e, b = (e + 1) & 3; int outer = side < 0 ? e == 3 : e == 1;
+    gfx_line((int)q[a][0], (int)q[a][1], (int)q[b][0], (int)q[b][1], outer ? GFX_HG : GFX_HG_EDGE);
   }
 }
 

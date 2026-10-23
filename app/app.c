@@ -1086,7 +1086,9 @@ int app_quit(void) { return quit; }
 int app_state(char *b, int n) {                // a line of the editor's state, for comparing runs (tests)
   return snprintf(b, (size_t)n, "m%d r%d,%d,%d,%d p%d w%d,%d i%d c%d s%d l%d,%d", mode, rx, ry, rf, rrot, mrow, wcur, wport, item, L.nsq, L.player, L.nlogic, L.logic[0].op);
 }
+static void plates_tick(void);
 void app_frame(const Pad *p) {
+  plates_tick();
   t++; if (msgT) msgT--;
   icons_update(p);
   camera();
@@ -1540,13 +1542,27 @@ static void tab_row(int current) {            // along the top of the screen: pr
     if (on) gfx_gtext(tx, y0 + 12, 1, 0xffffff, TABS[k]); else gfx_text5(tx, y0 + 12, 1, 0x7f9a86, TABS[k]);
   }
 }
-static void level_controls(void) {   // the metal panels in the corners, each with its live 3D control (icons3d.c)
+// the control windows: plain glass panels, each with its live 3D control drawn on it as a texture, on planes hinged on
+// their outer edges and turned into the screen (owner 2026-10-23). They fold away edge-on, one after another, while
+// something else is open over the level view (menu, dialogs, wiring), and swing back in when it closes.
+static float plateAng[4] = { 1.6f, 1.6f, 1.6f, 1.6f };   // start folded: they swing in when the builder opens
+static int plateT;                                      // ticks since the panels were last wanted in or out
+static void plates_tick(void) {
+  static int wasIn = -1; int in = mode == M_SHAPE;
+  if (in != wasIn) { wasIn = in; plateT = 0; } else plateT++;
+  for (int k = 0; k < 4; k++) {
+    if (plateT < k * 3) continue;                         // one after another
+    float target = in ? 0.42f : 1.6f;
+    plateAng[k] += (target - plateAng[k]) * 0.22f;
+  }
+}
+static void level_controls(void) {
   // glass panels (the hologram look) with each live 3D control (icons3d.c) in its own colours (owner: keep them)
   // (owner 2026-10-23: plates turned into the screen at an angle, not flat rectangles)
-  gfx_plate_begin(2, 292, 150, 96); icons_stick(6, 296, 142, 88); gfx_plate_end(2, 292, 150, 96, -1, 0.26f);   // the stick rolls the working plane
-  gfx_plate_begin(2, 394, 140, 84); icons_dpad(6, 398, 130, 76); gfx_plate_end(2, 394, 140, 84, -1, 0.26f);    // the D-pad moves the cursor
-  gfx_plate_begin(GW - 132, 246, 130, 146); icons_buttons(GW - 126, 252, 120, 134); gfx_plate_end(GW - 132, 246, 130, 146, 1, 0.26f);   // the face buttons
-  gfx_plate_begin(GW - 172, 396, 170, 82); icons_camera(GW - 166, 400, 160, 74); gfx_plate_end(GW - 172, 396, 170, 82, 1, 0.26f);     // the camera
+  if (plateAng[0] < 1.55f) { gfx_plate_begin(2, 292, 150, 96); icons_stick(6, 296, 142, 88); gfx_plate_end(2, 292, 150, 96, -1, plateAng[0]); }   // the stick rolls the working plane
+  if (plateAng[1] < 1.55f) { gfx_plate_begin(2, 394, 140, 84); icons_dpad(6, 398, 130, 76); gfx_plate_end(2, 394, 140, 84, -1, plateAng[1]); }    // the D-pad moves the cursor
+  if (plateAng[2] < 1.55f) { gfx_plate_begin(GW - 132, 246, 130, 146); icons_buttons(GW - 126, 252, 120, 134); gfx_plate_end(GW - 132, 246, 130, 146, 1, plateAng[2]); }   // the face buttons
+  if (plateAng[3] < 1.55f) { gfx_plate_begin(GW - 172, 396, 170, 82); icons_camera(GW - 166, 400, 160, 74); gfx_plate_end(GW - 172, 396, 170, 82, 1, plateAng[3]); }     // the camera
 }
 static void top_bar(const char *mode) {
   gfx_glass(0, 0, GW, 30); gfx_rect(0, 30, GW, 1, GFX_HG_EDGE);
@@ -1613,8 +1629,8 @@ static void draw_screens(void) {
     snprintf(s, sizeof s, "%s   %d CELLS", L.name, L.nsq); gfx_text5(GW - 12 - gfx_text5_w(1, s), 44, 1, 0x7f8a78, s);
     { int ci = find_sq(co, ce1, ce2);       // the cell under the cursor, by name
       if (ci >= 0 && L.sqname[ci][0]) { snprintf(s, sizeof s, "CELL %d: %s", ci, L.sqname[ci]); gfx_text5(GW - 12 - gfx_text5_w(1, s), 56, 1, 0xf2e01c, s); } }
+    level_controls();                         // (folding away while something else is open)
     if (mode == M_SHAPE) {
-      level_controls();
       gfx_glass(8, 44, 100, 100); gfx_brackets(8, 44, 100, 100, GFX_HG_EDGE, 8);   // the compass, top left: which way the world's axes point
       Vec3 up; { Vec3 r, u; view_axes(&r, &u); float cp = cosf(pitch), sp = sinf(pitch); up = v3f(u.x * sp + vn.x * cp, u.y * sp + vn.y * cp, u.z * sp + vn.z * cp); }
       icons_compass(8, 44, 100, 100, v3f(eye.x - look.x, eye.y - look.y, eye.z - look.z), up);

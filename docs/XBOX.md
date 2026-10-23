@@ -48,8 +48,9 @@ disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the te
 
 Since 2026-10-23 the builder follows VMX World's hologram look (owner: "get the UI for FOLD BUILDER lookin this
 awesome too"): glass panels with glowing edges and corner brackets instead of brushed metal, the live 3D Duke controls in
-their own colours (owner: keep the coloured buttons, sticks and the XYZ block) on plates turned into the screen at
-an angle (gfx_plate_begin / gfx_plate_end: cut corners, a bright outer rim with ticks), projected tabs, glowing titles, lit rows, scanlines and a rolling band
+their own colours (owner: keep the coloured buttons, sticks and the XYZ block) on plain glass panels shown as
+textures on 3D planes hinged on their outer edges and turned into the screen (gfx_plate_begin / gfx_plate_end); they
+fold away edge-on, one after another, while a menu, dialog or the wiring page is open, and swing back in after; projected tabs, glowing titles, lit rows, scanlines and a rolling band
 (gfx_post). The kit is in app/gfx.c, shared with VMX World. On the Xbox the glass is opaque over the GPU's scene.
 The compass, the tile palette and the wiring colours keep their colours: they tell things apart.
 

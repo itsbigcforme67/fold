@@ -92,8 +92,9 @@ void gfx_post(int t);                                        // scanlines + roll
 void gfx_decal(const uint8_t *mask, int mw, int mh, const float quad[4][2], uint32_t c);
 void gfx_tri_lit_decal(const Vec3 p[3], const float sh[3], const float uv[3][2], uint32_t colour,
                        const uint8_t *mask, int mw, int mh, uint32_t ink);   // gfx_tri_lit with a mask painted on (3D letters)   // a mask laid onto a screen quad
-void gfx_plate_begin(int x, int y, int w, int h);           // a control window turned into the screen: draw on it,
-void gfx_plate_end(int x, int y, int w, int h, int side, float turn);   // then this warps it (side -1 left, +1 right)
+void gfx_plate_begin(int x, int y, int w, int h);           // a control window: a plain glass panel to draw on, then
+void gfx_plate_end(int x, int y, int w, int h, int side, float ang);   // shown on a plane hinged on its outer edge (side -1 left,
+                                                             // +1 right), turned into the screen by ang (pi/2: folded away)
 
 Mat4 mat_mul(Mat4 a, Mat4 b);
 Mat4 mat_perspective(float fovy, float aspect, float zn, float zf);
