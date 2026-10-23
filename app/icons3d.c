@@ -164,7 +164,18 @@ static void part_letter(const Xf *x, int k, float scale, uint32_t col, float glo
   const Part *q = &parts[k]; if (q->nv > 2048) return;
   float lo[2] = { 1e9f, 1e9f }, hi[2] = { -1e9f, -1e9f };
   for (int i = 0; i < q->nv; i++) for (int a = 0; a < 2; a++) { float v = q->v[i * 6 + a]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
-  float cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2, size = 0.62f * fminf(hi[0] - lo[0], hi[1] - lo[1]);
+  float size = 0.5f * fminf(hi[0] - lo[0], hi[1] - lo[1]);   // the letter about half the button across, as on the pad
+  // the letter sits in the middle of the button's top face, as on the pad (not the middle of the whole button: its
+  // top is off-centre from its sides): the area-weighted centre of the faces turned upwards (normal z > 0.85)
+  float cx = 0, cy = 0, wsum = 0;
+  for (int j = 0; j < q->nt; j++) {
+    const float *A = q->v + q->t[j * 3] * 6, *B = q->v + q->t[j * 3 + 1] * 6, *C = q->v + q->t[j * 3 + 2] * 6;
+    float ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2], vx = C[0] - A[0], vy = C[1] - A[1], vz = C[2] - A[2];
+    float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, len = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (len < 1e-9f || nz / len < 0.85f) continue;
+    cx += (A[0] + B[0] + C[0]) / 3 * len; cy += (A[1] + B[1] + C[1]) / 3 * len; wsum += len;
+  }
+  if (wsum > 0) { cx /= wsum; cy /= wsum; } else { cx = (lo[0] + hi[0]) / 2; cy = (lo[1] + hi[1]) / 2; }
   for (int i = 0; i < q->nv; i++) {
     const float *v = q->v + i * 6;
     W[i] = P(x, v[0] * scale, v[1] * scale, v[2] * scale);
