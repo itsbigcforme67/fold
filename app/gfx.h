@@ -89,6 +89,8 @@ void gfx_hpanel(int x, int y, int w, int h, const char *title, uint32_t accent);
 void gfx_hsel(int x, int y, int w, int h, int focused);     // a lit row
 void gfx_holo_filter(int x, int y, int w, int h);            // turn what's drawn there into green light
 void gfx_post(int t);                                        // scanlines + rolling band over the screen
+void gfx_plate_begin(int x, int y, int w, int h);           // a control window turned into the screen: draw on it,
+void gfx_plate_end(int x, int y, int w, int h, int side, float turn);   // then this warps it (side -1 left, +1 right)
 
 Mat4 mat_mul(Mat4 a, Mat4 b);
 Mat4 mat_perspective(float fovy, float aspect, float zn, float zf);

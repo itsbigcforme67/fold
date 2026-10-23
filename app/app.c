@@ -1542,10 +1542,11 @@ static void tab_row(int current) {            // along the top of the screen: pr
 }
 static void level_controls(void) {   // the metal panels in the corners, each with its live 3D control (icons3d.c)
   // glass panels (the hologram look) with each live 3D control (icons3d.c) in its own colours (owner: keep them)
-  gfx_hpanel(2, 296, 148, 92, NULL, GFX_HG); icons_stick(4, 298, 142, 88);     // the stick rolls the working plane
-  gfx_hpanel(2, 398, 136, 80, NULL, GFX_HG); icons_dpad(4, 400, 130, 76);      // the D-pad moves the cursor
-  gfx_hpanel(GW - 128, 250, 126, 142, NULL, GFX_HG); icons_buttons(GW - 124, 254, 120, 134);   // the face buttons
-  gfx_hpanel(GW - 168, 400, 166, 78, NULL, GFX_HG); icons_camera(GW - 164, 402, 160, 74);     // the camera
+  // (owner 2026-10-23: plates turned into the screen at an angle, not flat rectangles)
+  gfx_plate_begin(2, 292, 150, 96); icons_stick(6, 296, 142, 88); gfx_plate_end(2, 292, 150, 96, -1, 0.26f);   // the stick rolls the working plane
+  gfx_plate_begin(2, 394, 140, 84); icons_dpad(6, 398, 130, 76); gfx_plate_end(2, 394, 140, 84, -1, 0.26f);    // the D-pad moves the cursor
+  gfx_plate_begin(GW - 132, 246, 130, 146); icons_buttons(GW - 126, 252, 120, 134); gfx_plate_end(GW - 132, 246, 130, 146, 1, 0.26f);   // the face buttons
+  gfx_plate_begin(GW - 172, 396, 170, 82); icons_camera(GW - 166, 400, 160, 74); gfx_plate_end(GW - 172, 396, 170, 82, 1, 0.26f);     // the camera
 }
 static void top_bar(const char *mode) {
   gfx_glass(0, 0, GW, 30); gfx_rect(0, 30, GW, 1, GFX_HG_EDGE);
