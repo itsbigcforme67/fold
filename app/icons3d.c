@@ -157,7 +157,7 @@ static void part(const Xf *x, int k, float scale, uint32_t col, float glow) {
     gfx_tri_lit(p3, sh, col);
   }
 }
-// a Duke face button as the real pad shows it (owner's photo, 2026-10-23): a smooth domed lens, a short side, sitting
+// a Duke face button as the real pad shows it (owner's photo and Microsoft's diagram, 2026-10-23): a smooth domed lens, a short side, sitting
 // in a dark recess ring, its letter centred on the dome in a lighter shade of the button with a slight embossed
 // edge. Made here (the scanned mesh's tops are too coarse to dome smoothly); sized and placed from the Duke model.
 static void lit3(const Vec3 *p, const Vec3 *n, float glow, float *L) {
@@ -173,7 +173,7 @@ static void lit3(const Vec3 *p, const Vec3 *n, float glow, float *L) {
 static void domed_button(float cx, float cy, float zb, float rx, float ry, float side, float dome, uint32_t col, float glow,
                          const uint8_t *mask, int n, uint32_t ink) {
   enum { S = 36, R = 9 };
-  float zt = zb + side, size = 1.12f * fminf(rx, ry);    // the letter about 55% of the button across
+  float zt = zb + side, size = 1.3f * fminf(rx, ry);     // the letter about 60% of the button across (as in the diagram)
   // the recess ring round it, and the short side
   for (int k = 0; k < S; k++) {
     float a0 = 6.2831853f * k / S, a1 = 6.2831853f * (k + 1) / S, c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
