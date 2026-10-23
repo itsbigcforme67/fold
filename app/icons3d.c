@@ -170,18 +170,25 @@ static void lit3(const Vec3 *p, const Vec3 *n, float glow, float *L) {
     L[i] = 0.34f + 0.72f * d + glow + (d > 0 ? 0.9f * sp : 0);
   }
 }
-static void domed_button(float cx, float cy, float zb, float rx, float ry, float side, float dome, uint32_t col, float glow,
-                         const uint8_t *mask, int n, uint32_t ink) {
+// rx / ry: the half-axes along / across the oval's long axis, which points at angle `slant` (radians from +x); the
+// letter stays upright with the pad
+static void domed_button(float cx, float cy, float zb, float rx, float ry, float slant, float side, float dome, uint32_t col,
+                         float glow, const uint8_t *mask, int n, uint32_t ink) {
   enum { S = 36, R = 9 };
   float zt = zb + side, size = 1.3f * fminf(rx, ry);     // the letter about 60% of the button across (as in the diagram)
+  float ca = cosf(slant), sa = sinf(slant);
+#define OV(lx, ly, X, Y) do { X = (lx) * ca - (ly) * sa; Y = (lx) * sa + (ly) * ca; } while (0)
   // the recess ring round it, and the short side
   for (int k = 0; k < S; k++) {
     float a0 = 6.2831853f * k / S, a1 = 6.2831853f * (k + 1) / S, c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
-    Vec3 ring[4] = { v3f(cx + rx * 1.22f * c0, cy + ry * 1.22f * s0, zb), v3f(cx + rx * 1.22f * c1, cy + ry * 1.22f * s1, zb),
-                     v3f(cx + rx * c1, cy + ry * s1, zb), v3f(cx + rx * c0, cy + ry * s0, zb) };
+    float X0, Y0, X1, Y1, RX0, RY0, RX1, RY1, NX0, NY0, NX1, NY1;
+    OV(rx * c0, ry * s0, X0, Y0); OV(rx * c1, ry * s1, X1, Y1);
+    OV(rx * 1.22f * c0, ry * 1.22f * s0, RX0, RY0); OV(rx * 1.22f * c1, ry * 1.22f * s1, RX1, RY1);
+    OV(c0 / rx, s0 / ry, NX0, NY0); OV(c1 / rx, s1 / ry, NX1, NY1);
+    Vec3 ring[4] = { v3f(cx + RX0, cy + RY0, zb), v3f(cx + RX1, cy + RY1, zb), v3f(cx + X1, cy + Y1, zb), v3f(cx + X0, cy + Y0, zb) };
     gfx_quad(ring, NULL, 0x0c0c0c, 1);                   // (the dark recess)
-    Vec3 p[4] = { v3f(cx + rx * c0, cy + ry * s0, zb), v3f(cx + rx * c1, cy + ry * s1, zb), v3f(cx + rx * c1, cy + ry * s1, zt), v3f(cx + rx * c0, cy + ry * s0, zt) };
-    Vec3 nn[4] = { v3f(c0 / rx, s0 / ry, 0), v3f(c1 / rx, s1 / ry, 0), v3f(c1 / rx, s1 / ry, 0), v3f(c0 / rx, s0 / ry, 0) };
+    Vec3 p[4] = { v3f(cx + X0, cy + Y0, zb), v3f(cx + X1, cy + Y1, zb), v3f(cx + X1, cy + Y1, zt), v3f(cx + X0, cy + Y0, zt) };
+    Vec3 nn[4] = { v3f(NX0, NY0, 0), v3f(NX1, NY1, 0), v3f(NX1, NY1, 0), v3f(NX0, NY0, 0) };
     for (int i = 0; i < 4; i++) { float l = sqrtf(nn[i].x * nn[i].x + nn[i].y * nn[i].y); nn[i].x /= l; nn[i].y /= l; }
     Vec3 t1[3] = { p[0], p[1], p[2] }, n1[3] = { nn[0], nn[1], nn[2] }, t2[3] = { p[0], p[2], p[3] }, n2[3] = { nn[0], nn[2], nn[3] }; float L[3];
     lit3(t1, n1, glow, L); gfx_tri_lit(t1, L, col); lit3(t2, n2, glow, L); gfx_tri_lit(t2, L, col);
@@ -191,11 +198,13 @@ static void domed_button(float cx, float cy, float zb, float rx, float ry, float
     float tt[2] = { (float)r / R, (float)(r + 1) / R }, aa[2] = { 6.2831853f * k / S, 6.2831853f * (k + 1) / S };
     Vec3 P[4], N[4]; float UV[4][2]; int q = 0;
     for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) {
-      float t = tt[i], a = aa[i ^ j], x = rx * t * cosf(a), y = ry * t * sinf(a);
+      float t = tt[i], a = aa[i ^ j], lx = rx * t * cosf(a), ly = ry * t * sinf(a), x, y, nx, ny;
+      OV(lx, ly, x, y);
       P[q] = v3f(cx + x, cy + y, zt + dome * (1 - t * t));
-      float nx = 2 * dome * x / (rx * rx), ny = 2 * dome * y / (ry * ry), l = sqrtf(nx * nx + ny * ny + 1);
+      OV(2 * dome * lx / (rx * rx), 2 * dome * ly / (ry * ry), nx, ny);
+      float l = sqrtf(nx * nx + ny * ny + 1);
       N[q] = v3f(nx / l, ny / l, 1 / l);
-      UV[q][0] = (x / size + 0.5f) * n; UV[q][1] = (-y / size + 0.5f) * n; q++;
+      UV[q][0] = (x / size + 0.5f) * n; UV[q][1] = (-y / size + 0.5f) * n; q++;   // (upright: not turned with the oval)
     }
     int tri[2][3] = { { 0, 1, 2 }, { 0, 2, 3 } };       // (0: t0 a0, 1: t0 a1, 2: t1 a1, 3: t1 a0)
     for (int h = 0; h < 2; h++) {
@@ -206,6 +215,7 @@ static void domed_button(float cx, float cy, float zb, float rx, float ry, float
     }
   }
 }
+#undef OV
 static float part_h(int k) {                    // how tall a part stands (mm), from its lowest point to its highest
   float lo = 1e9f, hi = -1e9f; for (int i = 0; i < parts[k].nv; i++) { float z = parts[k].v[i * 6 + 2]; if (z < lo) lo = z; if (z > hi) hi = z; }
   return hi - lo;
@@ -344,7 +354,10 @@ static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke
       for (int i = 0; i < q->nv; i++) for (int a = 0; a < 3; a++) { float v = q->v[i * 6 + a]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
       float zc = (q->c[2] - m[2]) * sc - press[k] * 0.14f, ht = (hi[2] - lo[2]) * sc;
       // the letter: a lighter shade of the button (the white core through the coloured shell), as in the photo
-      domed_button(fb[k].x, fb[k].y, zc - ht * 0.1f, (hi[0] - lo[0]) * sc * 0.52f, (hi[1] - lo[1]) * sc * 0.52f, ht * 0.18f, ht * 0.32f,
+      // the oval as traced from the owner's photo of a real Duke (ellipses fitted to the buttons' outlines, scaled by the
+      // X-A spacing; the model's buttons were made up to fit the shell, so they are no reference): half-axes 6.3 x
+      // 5.2 mm, the long axis about 17 degrees off upright with its top leaning left (107 degrees from +x)
+      domed_button(fb[k].x, fb[k].y, zc - ht * 0.1f, 6.3f * sc, 5.2f * sc, 107 * 0.0174533f, ht * 0.18f, ht * 0.32f,
                    c, press[k] * 0.35f, DUKE_LETTERS[li[k]], DUKE_LETTER_N, gfx_mix(c, 0xffffff, 130));
     }
     done(); return;
