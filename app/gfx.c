@@ -221,12 +221,13 @@ int gfx_project(Vec3 p, float *sx, float *sy) {
 }
 
 // clip-space vertex with texture coords; clipped against the near plane, then rasterised as a fan
-typedef struct { V4 c; float u, v; } CV;
+typedef struct { V4 c; float u, v, s; } CV;          // s: the light, in mode 4 (u v: the decal's mask)
 static uint32_t shade_c(uint32_t c, float k) {
   int r = (int)(((c >> 16) & 255) * k), g = (int)(((c >> 8) & 255) * k), b = (int)((c & 255) * k);
   return (uint32_t)((r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b));
 }
-static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 3 lit (u = shade)
+static int triMode; static float triAlpha;      // 0 normal, 1 see-through (no depth write), 3 lit (u = shade), 4 lit + decal
+static const uint8_t *decMask; static int decW, decH; static uint32_t decInk;   // mode 4's mask (u v in its pixels) and ink
 uint32_t gfx_shade_lit(uint32_t c, float k);
 static uint32_t shade_lit(uint32_t c, float k) { // up to 1 darkens; above it, a shine towards white
   if (k <= 1) return shade_c(c, k < 0 ? 0 : k);
@@ -241,12 +242,12 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
     gpu->tri(v, triMode == 3 ? NULL : t, colour, shade, triMode, triAlpha);
     return;
   }
-  float X[3], Y[3], IW[3], UW[3], VW[3];
+  float X[3], Y[3], IW[3], UW[3], VW[3], SW[3];
   const CV *v[3] = { a, b, c };
   for (int i = 0; i < 3; i++) {
     float iw = 1.0f / v[i]->c.w;
     X[i] = (v[i]->c.x * iw * 0.5f + 0.5f) * GW + vofsX; Y[i] = (0.5f - v[i]->c.y * iw * 0.5f) * GH + vofsY;
-    IW[i] = iw; UW[i] = v[i]->u * iw; VW[i] = v[i]->v * iw;
+    IW[i] = iw; UW[i] = v[i]->u * iw; VW[i] = v[i]->v * iw; SW[i] = v[i]->s * iw;
   }
   float area = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
   if (fabsf(area) < 1e-6f) return;
@@ -261,6 +262,7 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
   float w0r = ((X[1] - px0) * (Y[2] - py0) - (X[2] - px0) * (Y[1] - py0)) * ia;
   float w1r = ((X[2] - px0) * (Y[0] - py0) - (X[0] - px0) * (Y[2] - py0)) * ia;
   float dI0 = IW[0] - IW[2], dI1 = IW[1] - IW[2], dU0 = UW[0] - UW[2], dU1 = UW[1] - UW[2], dV0 = VW[0] - VW[2], dV1 = VW[1] - VW[2];
+  float dS0 = SW[0] - SW[2], dS1 = SW[1] - SW[2];
   uint32_t flat = shade_c(colour, shade);
   for (int y = y0; y <= y1; y++, w0r += w0y, w1r += w1y) {
     // this row's span: where w0 >= 0, w1 >= 0 and w2 = 1 - w0 - w1 >= 0 (each linear in x)
@@ -279,13 +281,23 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
     float iw = IW[2] + w0 * dI0 + w1 * dI1, iwx = w0x * dI0 + w1x * dI1;
     float uw = UW[2] + w0 * dU0 + w1 * dU1, uwx = w0x * dU0 + w1x * dU1;
     float vw = VW[2] + w0 * dV0 + w1 * dV1, vwx = w0x * dV0 + w1x * dV1;
+    float sw = SW[2] + w0 * dS0 + w1 * dS1, swx = w0x * dS0 + w1x * dS1;
     int k = y * GW + xs;
-    for (int x = xs; x <= xe; x++, k++, iw += iwx, uw += uwx, vw += vwx) {
+    for (int x = xs; x <= xe; x++, k++, iw += iwx, uw += uwx, vw += vwx, sw += swx) {
       float z = 1.0f / iw;
       if (z >= zbuf[k]) continue;
       if (triMode == 1) { gfx_px[k] = mix(gfx_px[k], fogged(flat, z), triAlpha); continue; }
       uint32_t col = flat;
       if (triMode == 3) col = shade_lit(colour, uw * z);
+      else if (triMode == 4) {                  // lit, with the mask's ink blended in (bilinear), lit the same
+        float u = uw * z - .5f, v = vw * z - .5f; uint32_t base = colour;
+        if (u >= 0 && v >= 0 && u < decW - 1 && v < decH - 1) {
+          int iu = (int)u, iv = (int)v; float fu = u - iu, fv = v - iv; const uint8_t *m = decMask + iv * decW + iu;
+          int a = (int)(m[0] * (1 - fu) * (1 - fv) + m[1] * fu * (1 - fv) + m[decW] * (1 - fu) * fv + m[decW + 1] * fu * fv);
+          if (a > 4) base = mix(colour, decInk, a / 255.0f);
+        }
+        col = shade_lit(base, sw * z);
+      }
       else if (t) {
         int tx = (int)(uw * z * t->w), ty = (int)(vw * z * t->h);
         if (tx < 0) tx = 0; if (ty < 0) ty = 0; if (tx >= t->w) tx = t->w - 1; if (ty >= t->h) ty = t->h - 1;
@@ -331,6 +343,28 @@ void gfx_tri_lit(const Vec3 p[3], const float sh[3], uint32_t colour) {
     }
   }
   triMode = 3;
+  for (int i = 1; i + 1 < n; i++) tri(&out[0], &out[i], &out[i + 1], NULL, colour, 1);
+  triMode = 0;
+}
+// a lit triangle with a mask painted on it (letters on 3D buttons): uv = each corner's place in the mask's pixels
+void gfx_tri_lit_decal(const Vec3 p[3], const float sh[3], const float uv[3][2], uint32_t colour,
+                       const uint8_t *mask, int mw, int mh, uint32_t ink) {
+  CV in[3], out[6]; int n = 0;
+  for (int i = 0; i < 3; i++) { in[i].c = xform(p[i]); in[i].u = uv[i][0]; in[i].v = uv[i][1]; in[i].s = sh[i]; }
+  const float NEAR = 0.05f;
+  for (int i = 0; i < 3; i++) {
+    const CV *a = &in[i], *b = &in[(i + 1) % 3];
+    int ia = a->c.w >= NEAR, ib = b->c.w >= NEAR;
+    if (ia) out[n++] = *a;
+    if (ia != ib) {
+      float k = (NEAR - a->c.w) / (b->c.w - a->c.w); CV m;
+      m.c.x = a->c.x + (b->c.x - a->c.x) * k; m.c.y = a->c.y + (b->c.y - a->c.y) * k;
+      m.c.z = a->c.z + (b->c.z - a->c.z) * k; m.c.w = NEAR;
+      m.u = a->u + (b->u - a->u) * k; m.v = a->v + (b->v - a->v) * k; m.s = a->s + (b->s - a->s) * k;
+      out[n++] = m;
+    }
+  }
+  decMask = mask; decW = mw; decH = mh; decInk = ink; triMode = 4;
   for (int i = 1; i + 1 < n; i++) tri(&out[0], &out[i], &out[i + 1], NULL, colour, 1);
   triMode = 0;
 }

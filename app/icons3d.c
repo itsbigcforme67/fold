@@ -157,6 +157,38 @@ static void part(const Xf *x, int k, float scale, uint32_t col, float glow) {
     gfx_tri_lit(p3, sh, col);
   }
 }
+// a part with a letter painted on its top (the face buttons): each vertex's place across the button (pad-up =
+// letter-up) gives its spot in the letter's mask, on the faces turned upwards; lit and depth-tested with the part
+static void part_letter(const Xf *x, int k, float scale, uint32_t col, float glow, const uint8_t *mask, int n, uint32_t ink) {
+  static Vec3 W[2048]; static float L[2048], UV[2048][2];
+  const Part *q = &parts[k]; if (q->nv > 2048) return;
+  float lo[2] = { 1e9f, 1e9f }, hi[2] = { -1e9f, -1e9f };
+  for (int i = 0; i < q->nv; i++) for (int a = 0; a < 2; a++) { float v = q->v[i * 6 + a]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
+  float cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2, size = 0.62f * fminf(hi[0] - lo[0], hi[1] - lo[1]);
+  for (int i = 0; i < q->nv; i++) {
+    const float *v = q->v + i * 6;
+    W[i] = P(x, v[0] * scale, v[1] * scale, v[2] * scale);
+    float nx = x->m[0] * v[3] + x->m[1] * v[4] + x->m[2] * v[5], ny = x->m[3] * v[3] + x->m[4] * v[4] + x->m[5] * v[5], nz = x->m[6] * v[3] + x->m[7] * v[4] + x->m[8] * v[5];
+    Vec3 e = sub3(eye, W[i]); float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z) + 1e-9f;
+    float hx = LX + e.x / el, hy = LY + e.y / el, hz = LZ + e.z / el, hl = sqrtf(hx * hx + hy * hy + hz * hz) + 1e-9f;
+    float d = nx * LX + ny * LY + nz * LZ, sp = (nx * hx + ny * hy + nz * hz) / hl;
+    if (d < 0) d = 0; if (sp < 0) sp = 0;
+    sp = sp * sp; sp = sp * sp; sp = sp * sp; sp = sp * sp;
+    L[i] = 0.34f + 0.72f * d + glow + (d > 0 ? 0.9f * sp : 0);
+    UV[i][0] = ((v[0] - cx) / size + 0.5f) * n; UV[i][1] = (-(v[1] - cy) / size + 0.5f) * n;
+  }
+  for (int j = 0; j < q->nt; j++) {
+    const uint16_t *t = q->t + j * 3;
+    Vec3 a = W[t[0]], b = W[t[1]], c = W[t[2]], u = sub3(b, a), v = sub3(c, a), e = sub3(eye, a);
+    Vec3 nn = v3f(u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x);
+    if (nn.x * e.x + nn.y * e.y + nn.z * e.z <= 0) continue;
+    Vec3 p3[3] = { a, b, c }; float sh[3] = { L[t[0]], L[t[1]], L[t[2]] };
+    float up = (q->v[t[0] * 6 + 5] + q->v[t[1] * 6 + 5] + q->v[t[2] * 6 + 5]) / 3;   // the mesh's own normal: the top?
+    if (up < 0.35f) { gfx_tri_lit(p3, sh, col); continue; }
+    float uv[3][2] = { { UV[t[0]][0], UV[t[0]][1] }, { UV[t[1]][0], UV[t[1]][1] }, { UV[t[2]][0], UV[t[2]][1] } };
+    gfx_tri_lit_decal(p3, sh, uv, col, mask, n, n, ink);
+  }
+}
 static float part_h(int k) {                    // how tall a part stands (mm), from its lowest point to its highest
   float lo = 1e9f, hi = -1e9f; for (int i = 0; i < parts[k].nv; i++) { float z = parts[k].v[i * 6 + 2]; if (z < lo) lo = z; if (z > hi) hi = z; }
   return hi - lo;
@@ -285,10 +317,11 @@ static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke
       const Part *q = &parts[id[k]];
       fb[k].x = (q->c[0] - m[0]) * sc; fb[k].y = (q->c[1] - m[1]) * sc;
       Xf b = xf(v3f(fb[k].x, fb[k].y, (q->c[2] - m[2]) * sc - press[k] * 0.14f));
-      part(&b, id[k], sc, brighter(fb[k].c, press[k] * 0.3f), press[k] * 0.35f);
+      static const int li[4] = { 3, 2, 1, 0 };     // fb[] order Y X B A -> DUKE_LETTERS order A B X Y
+      uint32_t c = brighter(fb[k].c, press[k] * 0.3f);
+      // the letter is part of the button: the white core seen through the clear coloured shell, lit with it
+      part_letter(&b, id[k], sc, c, press[k] * 0.35f, DUKE_LETTERS[li[k]], DUKE_LETTER_N, gfx_mix(0xffffff, c, 40));
     }
-    for (int k = 0; k < 4; k++)                  // the letters on the buttons' tops (they press with them)
-      letter(k, fb[k].x, fb[k].y, (parts[id[k]].c[2] - m[2]) * sc + part_h(id[k]) * sc * 0.38f - press[k] * 0.14f, 0.21f, fb[k].c, press[k]);
     done(); return;
   }
   for (int k = 0; k < 4; k++) {
