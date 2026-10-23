@@ -53,6 +53,9 @@ textures on 3D planes hinged on their outer edges and turned into the screen (gf
 fold away edge-on, one after another, while a menu, dialog or the wiring page is open, and swing back in after; projected tabs, glowing titles, lit rows, scanlines and a rolling band
 (gfx_post). The kit is in app/gfx.c, shared with VMX World. On the Xbox the glass is opaque over the GPU's scene.
 The compass, the tile palette and the wiring colours keep their colours: they tell things apart.
+The VMX window and the playtest VMX are the skeleton hologram, head-on (owner: "update the vmx renders to be the cool
+pre-rendered wireframes"): assets/vmx_small and vmx_large are rendered ahead of time by VMX World's hologram code
+(vmx-world/xbox, `make -f Makefile.pc holo`), so the builder only blends a picture.
 
 ## Controls (Duke)
 

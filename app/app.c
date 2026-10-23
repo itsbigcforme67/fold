@@ -1349,7 +1349,8 @@ static void draw_shape(void) {
   }
   for (int k = 0; k < 4; k++) gfx_line3(C[k], C[(k + 1) & 3], pulse > 0.5f ? cc : 0x6fb050, 1);
 }
-// the VMX window: the owner's render of the VMX (assets/vmx_small / vmx_large) with the 64x64 screen in it
+// the VMX window: the VMX as the skeleton hologram, head-on (assets/vmx_small / vmx_large, made ahead of time by
+// vmx-world/xbox's holo_bake from the CAD model, as VMX World draws it) with the 64x64 screen in it
 typedef struct { int w, h, sx, sy; uint8_t *px; } Frame;
 static Frame frames[2]; static int framesTried;
 static uint8_t *metalPx;
@@ -1392,8 +1393,7 @@ static int draw_vmx(int x, int y, int scale, const uint8_t *b) {
       unsigned r = (q[0] * a + ((d >> 16) & 255) * (255 - a)) / 255, g = (q[1] * a + ((d >> 8) & 255) * (255 - a)) / 255, bl = (q[2] * a + (d & 255) * (255 - a)) / 255;
       gfx_px[Y * GW + X] = r << 16 | g << 8 | bl;
     }
-    gfx_holo_filter(ox, oy, F->w, F->h);       // the render as green light (the hologram look); then the screen
-    gfx_blit(x, y, scale, &tx);
+    gfx_blit(x, y, scale, &tx);                // (the picture is the hologram already: baked by vmx-world's holo_bake)
     return F->w;
   }
   int w = 64 * scale;                          // no render: a plain body
