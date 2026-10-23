@@ -157,47 +157,53 @@ static void part(const Xf *x, int k, float scale, uint32_t col, float glow) {
     gfx_tri_lit(p3, sh, col);
   }
 }
-// a part with a letter painted on its top (the face buttons): each vertex's place across the button (pad-up =
-// letter-up) gives its spot in the letter's mask, on the faces turned upwards; lit and depth-tested with the part
-static void part_letter(const Xf *x, int k, float scale, uint32_t col, float glow, const uint8_t *mask, int n, uint32_t ink) {
-  static Vec3 W[2048]; static float L[2048], UV[2048][2];
-  const Part *q = &parts[k]; if (q->nv > 2048) return;
-  float lo[2] = { 1e9f, 1e9f }, hi[2] = { -1e9f, -1e9f };
-  for (int i = 0; i < q->nv; i++) for (int a = 0; a < 2; a++) { float v = q->v[i * 6 + a]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
-  float size = 0.5f * fminf(hi[0] - lo[0], hi[1] - lo[1]);   // the letter about half the button across, as on the pad
-  // the letter sits in the middle of the button's top face, as on the pad (not the middle of the whole button: its
-  // top is off-centre from its sides): the area-weighted centre of the faces turned upwards (normal z > 0.85)
-  float cx = 0, cy = 0, wsum = 0;
-  for (int j = 0; j < q->nt; j++) {
-    const float *A = q->v + q->t[j * 3] * 6, *B = q->v + q->t[j * 3 + 1] * 6, *C = q->v + q->t[j * 3 + 2] * 6;
-    float ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2], vx = C[0] - A[0], vy = C[1] - A[1], vz = C[2] - A[2];
-    float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, len = sqrtf(nx * nx + ny * ny + nz * nz);
-    if (len < 1e-9f || nz / len < 0.85f) continue;
-    cx += (A[0] + B[0] + C[0]) / 3 * len; cy += (A[1] + B[1] + C[1]) / 3 * len; wsum += len;
-  }
-  if (wsum > 0) { cx /= wsum; cy /= wsum; } else { cx = (lo[0] + hi[0]) / 2; cy = (lo[1] + hi[1]) / 2; }
-  for (int i = 0; i < q->nv; i++) {
-    const float *v = q->v + i * 6;
-    W[i] = P(x, v[0] * scale, v[1] * scale, v[2] * scale);
-    float nx = x->m[0] * v[3] + x->m[1] * v[4] + x->m[2] * v[5], ny = x->m[3] * v[3] + x->m[4] * v[4] + x->m[5] * v[5], nz = x->m[6] * v[3] + x->m[7] * v[4] + x->m[8] * v[5];
-    Vec3 e = sub3(eye, W[i]); float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z) + 1e-9f;
+// a Duke face button as the real pad shows it (owner's photo, 2026-10-23): a smooth domed lens, a short side, sitting
+// in a dark recess ring, its letter centred on the dome in a lighter shade of the button with a slight embossed
+// edge. Made here (the scanned mesh's tops are too coarse to dome smoothly); sized and placed from the Duke model.
+static void lit3(const Vec3 *p, const Vec3 *n, float glow, float *L) {
+  for (int i = 0; i < 3; i++) {
+    Vec3 e = sub3(eye, p[i]); float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z) + 1e-9f;
     float hx = LX + e.x / el, hy = LY + e.y / el, hz = LZ + e.z / el, hl = sqrtf(hx * hx + hy * hy + hz * hz) + 1e-9f;
-    float d = nx * LX + ny * LY + nz * LZ, sp = (nx * hx + ny * hy + nz * hz) / hl;
+    float d = n[i].x * LX + n[i].y * LY + n[i].z * LZ, sp = (n[i].x * hx + n[i].y * hy + n[i].z * hz) / hl;
     if (d < 0) d = 0; if (sp < 0) sp = 0;
     sp = sp * sp; sp = sp * sp; sp = sp * sp; sp = sp * sp;
     L[i] = 0.34f + 0.72f * d + glow + (d > 0 ? 0.9f * sp : 0);
-    UV[i][0] = ((v[0] - cx) / size + 0.5f) * n; UV[i][1] = (-(v[1] - cy) / size + 0.5f) * n;
   }
-  for (int j = 0; j < q->nt; j++) {
-    const uint16_t *t = q->t + j * 3;
-    Vec3 a = W[t[0]], b = W[t[1]], c = W[t[2]], u = sub3(b, a), v = sub3(c, a), e = sub3(eye, a);
-    Vec3 nn = v3f(u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x);
-    if (nn.x * e.x + nn.y * e.y + nn.z * e.z <= 0) continue;
-    Vec3 p3[3] = { a, b, c }; float sh[3] = { L[t[0]], L[t[1]], L[t[2]] };
-    float up = (q->v[t[0] * 6 + 5] + q->v[t[1] * 6 + 5] + q->v[t[2] * 6 + 5]) / 3;   // the mesh's own normal: the top?
-    if (up < 0.35f) { gfx_tri_lit(p3, sh, col); continue; }
-    float uv[3][2] = { { UV[t[0]][0], UV[t[0]][1] }, { UV[t[1]][0], UV[t[1]][1] }, { UV[t[2]][0], UV[t[2]][1] } };
-    gfx_tri_lit_decal(p3, sh, uv, col, mask, n, n, ink);
+}
+static void domed_button(float cx, float cy, float zb, float rx, float ry, float side, float dome, uint32_t col, float glow,
+                         const uint8_t *mask, int n, uint32_t ink) {
+  enum { S = 36, R = 9 };
+  float zt = zb + side, size = 1.12f * fminf(rx, ry);    // the letter about 55% of the button across
+  // the recess ring round it, and the short side
+  for (int k = 0; k < S; k++) {
+    float a0 = 6.2831853f * k / S, a1 = 6.2831853f * (k + 1) / S, c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+    Vec3 ring[4] = { v3f(cx + rx * 1.22f * c0, cy + ry * 1.22f * s0, zb), v3f(cx + rx * 1.22f * c1, cy + ry * 1.22f * s1, zb),
+                     v3f(cx + rx * c1, cy + ry * s1, zb), v3f(cx + rx * c0, cy + ry * s0, zb) };
+    gfx_quad(ring, NULL, 0x0c0c0c, 1);                   // (the dark recess)
+    Vec3 p[4] = { v3f(cx + rx * c0, cy + ry * s0, zb), v3f(cx + rx * c1, cy + ry * s1, zb), v3f(cx + rx * c1, cy + ry * s1, zt), v3f(cx + rx * c0, cy + ry * s0, zt) };
+    Vec3 nn[4] = { v3f(c0 / rx, s0 / ry, 0), v3f(c1 / rx, s1 / ry, 0), v3f(c1 / rx, s1 / ry, 0), v3f(c0 / rx, s0 / ry, 0) };
+    for (int i = 0; i < 4; i++) { float l = sqrtf(nn[i].x * nn[i].x + nn[i].y * nn[i].y); nn[i].x /= l; nn[i].y /= l; }
+    Vec3 t1[3] = { p[0], p[1], p[2] }, n1[3] = { nn[0], nn[1], nn[2] }, t2[3] = { p[0], p[2], p[3] }, n2[3] = { nn[0], nn[2], nn[3] }; float L[3];
+    lit3(t1, n1, glow, L); gfx_tri_lit(t1, L, col); lit3(t2, n2, glow, L); gfx_tri_lit(t2, L, col);
+  }
+  // the dome: z = zt + dome * (1 - t^2) over the oval; normal ~ (2 dome x / rx^2, 2 dome y / ry^2, 1)
+  for (int r = 0; r < R; r++) for (int k = 0; k < S; k++) {
+    float tt[2] = { (float)r / R, (float)(r + 1) / R }, aa[2] = { 6.2831853f * k / S, 6.2831853f * (k + 1) / S };
+    Vec3 P[4], N[4]; float UV[4][2]; int q = 0;
+    for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) {
+      float t = tt[i], a = aa[i ^ j], x = rx * t * cosf(a), y = ry * t * sinf(a);
+      P[q] = v3f(cx + x, cy + y, zt + dome * (1 - t * t));
+      float nx = 2 * dome * x / (rx * rx), ny = 2 * dome * y / (ry * ry), l = sqrtf(nx * nx + ny * ny + 1);
+      N[q] = v3f(nx / l, ny / l, 1 / l);
+      UV[q][0] = (x / size + 0.5f) * n; UV[q][1] = (-y / size + 0.5f) * n; q++;
+    }
+    int tri[2][3] = { { 0, 1, 2 }, { 0, 2, 3 } };       // (0: t0 a0, 1: t0 a1, 2: t1 a1, 3: t1 a0)
+    for (int h = 0; h < 2; h++) {
+      Vec3 p3[3], n3[3]; float uv[3][2], L[3];
+      for (int i = 0; i < 3; i++) { p3[i] = P[tri[h][i]]; n3[i] = N[tri[h][i]]; uv[i][0] = UV[tri[h][i]][0]; uv[i][1] = UV[tri[h][i]][1]; }
+      lit3(p3, n3, glow, L);
+      gfx_tri_lit_decal(p3, L, uv, col, mask, n, n, ink);
+    }
   }
 }
 static float part_h(int k) {                    // how tall a part stands (mm), from its lowest point to its highest
@@ -317,7 +323,10 @@ static void letter(int k, float x, float y, float z, float half, uint32_t button
   gfx_decal(DUKE_LETTERS[idx[k]], DUKE_LETTER_N, DUKE_LETTER_N, q, gfx_mix(0xffffff, brighter(button, press * 0.3f), 40));
 }
 static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style: Y X B A
-  scene(x, y, w, h, 13, 0.95f, 2.9f);
+#ifndef BTN_ELEV
+#define BTN_ELEV 0.95f                                   // (tests: -DBTN_ELEV=1.57 looks straight down)
+#endif
+  scene(x, y, w, h, 13, BTN_ELEV, 2.5f);
   struct { float x, y; uint32_t c; const char *l; } fb[4] = { { -0.2f, 0.8f, 0xe8d020, "Y" }, { -0.8f, 0.1f, 0x2050e0, "X" },
                                                             { 0.75f, 0.25f, 0xe02828, "B" }, { 0.15f, -0.6f, 0x52d020, "A" } };
   if (!partsTried) load_parts();
@@ -330,8 +339,13 @@ static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke
       Xf b = xf(v3f(fb[k].x, fb[k].y, (q->c[2] - m[2]) * sc - press[k] * 0.14f));
       static const int li[4] = { 3, 2, 1, 0 };     // fb[] order Y X B A -> DUKE_LETTERS order A B X Y
       uint32_t c = brighter(fb[k].c, press[k] * 0.3f);
-      // the letter is part of the button: the white core seen through the clear coloured shell, lit with it
-      part_letter(&b, id[k], sc, c, press[k] * 0.35f, DUKE_LETTERS[li[k]], DUKE_LETTER_N, gfx_mix(0xffffff, c, 40));
+      (void)b;
+      float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
+      for (int i = 0; i < q->nv; i++) for (int a = 0; a < 3; a++) { float v = q->v[i * 6 + a]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
+      float zc = (q->c[2] - m[2]) * sc - press[k] * 0.14f, ht = (hi[2] - lo[2]) * sc;
+      // the letter: a lighter shade of the button (the white core through the coloured shell), as in the photo
+      domed_button(fb[k].x, fb[k].y, zc - ht * 0.1f, (hi[0] - lo[0]) * sc * 0.52f, (hi[1] - lo[1]) * sc * 0.52f, ht * 0.18f, ht * 0.32f,
+                   c, press[k] * 0.35f, DUKE_LETTERS[li[k]], DUKE_LETTER_N, gfx_mix(c, 0xffffff, 130));
     }
     done(); return;
   }

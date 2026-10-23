@@ -295,6 +295,10 @@ static void tri(const CV *a, const CV *b, const CV *c, const Tex *t, uint32_t co
           int iu = (int)u, iv = (int)v; float fu = u - iu, fv = v - iv; const uint8_t *m = decMask + iv * decW + iu;
           int a = (int)(m[0] * (1 - fu) * (1 - fv) + m[1] * fu * (1 - fv) + m[decW] * (1 - fu) * fv + m[decW + 1] * fu * fv);
           if (a > 4) base = mix(colour, decInk, a / 255.0f);
+          // a raised letter's edge: darker where the letter rises just beside this point (an emboss, light from above-left)
+          int iu2 = iu + 1 < decW - 1 ? iu + 1 : iu, iv2 = iv + 1 < decH - 1 ? iv + 1 : iv;
+          int sh = decMask[iv2 * decW + iu2] - a;
+          if (sh > 20) base = mix(base, shade_c(colour, 0.55f), sh / 255.0f * 0.7f);
         }
         col = shade_lit(base, sw * z);
       }
