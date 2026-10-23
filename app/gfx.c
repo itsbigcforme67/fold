@@ -577,3 +577,22 @@ void gfx_plate_end(int x, int y, int w, int h, int side, float turn) {
     gfx_line((int)a0, (int)b0, (int)a1, (int)b1, GFX_HG_EDGE);
   }
 }
+
+// a coverage mask (mw x mh, 0..255) laid onto a screen quad (its corners: the mask's top-left, top-right,
+// bottom-right, bottom-left), in colour c: for letters on 3D buttons
+void gfx_decal(const uint8_t *mask, int mw, int mh, const float quad[4][2], uint32_t c) {
+  float src[4][2] = { { 0, 0 }, { (float)mw, 0 }, { (float)mw, (float)mh }, { 0, (float)mh } }, Hi[9];
+  homography(quad, src, Hi);
+  float x0 = quad[0][0], x1 = x0, y0 = quad[0][1], y1 = y0;
+  for (int k = 1; k < 4; k++) { if (quad[k][0] < x0) x0 = quad[k][0]; if (quad[k][0] > x1) x1 = quad[k][0]; if (quad[k][1] < y0) y0 = quad[k][1]; if (quad[k][1] > y1) y1 = quad[k][1]; }
+  for (int Y = (int)y0; Y <= (int)y1; Y++) for (int X = (int)x0; X <= (int)x1; X++) {
+    if (X < 0 || Y < 0 || X >= GW || Y >= GH) continue;
+    float u, v; happly(Hi, X + .5f, Y + .5f, &u, &v); u -= .5f; v -= .5f;
+    if (u < 0 || v < 0 || u >= mw - 1 || v >= mh - 1) continue;
+    int iu = (int)u, iv = (int)v; float fu = u - iu, fv = v - iv;   // bilinear
+    const uint8_t *m = mask + iv * mw + iu;
+    int a = (int)(m[0] * (1 - fu) * (1 - fv) + m[1] * fu * (1 - fv) + m[mw] * (1 - fu) * fv + m[mw + 1] * fu * fv);
+    if (a < 8) continue;
+    gfx_px[Y * GW + X] = gfx_mix(gfx_px[Y * GW + X] >> 24 ? 0 : gfx_px[Y * GW + X], c, a);
+  }
+}

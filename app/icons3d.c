@@ -4,6 +4,7 @@
 // the camera turns with the right stick. The stick, D-pad and button models are the Duke controller's parts from the
 // VMX film (assets/duke.mesh, made by tools/make_duke.py); until that file loads, simple stand-in shapes are drawn.
 #include "icons3d.h"
+#include "duke_letters.h"
 #include "gfx.h"
 #include <math.h>
 #include <stdio.h>
@@ -263,6 +264,15 @@ static void draw_dpad(int x, int y, int w, int h) {    // the D-pad moves the cu
   }
   done();
 }
+// a button's letter lying on its top: the Duke's two-shot buttons show a white core letter through the clear coloured
+// shell, so it's drawn pale, tinted by the button (DejaVu Sans Bold, as XMU GADGET's film models them)
+static void letter(int k, float x, float y, float z, float half, uint32_t button, float press) {
+  static const int idx[4] = { 3, 2, 1, 0 };            // fb[] order Y X B A -> DUKE_LETTERS order A B X Y
+  const Vec3 c[4] = { v3f(x - half, y + half, z), v3f(x + half, y + half, z), v3f(x + half, y - half, z), v3f(x - half, y - half, z) };
+  float q[4][2];
+  for (int i = 0; i < 4; i++) if (!gfx_project(c[i], &q[i][0], &q[i][1])) return;
+  gfx_decal(DUKE_LETTERS[idx[k]], DUKE_LETTER_N, DUKE_LETTER_N, q, gfx_mix(0xffffff, brighter(button, press * 0.3f), 40));
+}
 static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke-style: Y X B A
   scene(x, y, w, h, 13, 0.95f, 2.9f);
   struct { float x, y; uint32_t c; const char *l; } fb[4] = { { -0.2f, 0.8f, 0xe8d020, "Y" }, { -0.8f, 0.1f, 0x2050e0, "X" },
@@ -277,9 +287,8 @@ static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke
       Xf b = xf(v3f(fb[k].x, fb[k].y, (q->c[2] - m[2]) * sc - press[k] * 0.14f));
       part(&b, id[k], sc, brighter(fb[k].c, press[k] * 0.3f), press[k] * 0.35f);
     }
-    for (int k = 0; k < 4; k++) {
-      float sx, sy; if (gfx_project(v3f(fb[k].x, fb[k].y, part_h(id[k]) * sc / 2 + 0.02f - press[k] * 0.14f), &sx, &sy)) gfx_text5((int)sx - 2, (int)sy - 3, 1, 0x101010, fb[k].l);
-    }
+    for (int k = 0; k < 4; k++)                  // the letters on the buttons' tops (they press with them)
+      letter(k, fb[k].x, fb[k].y, (parts[id[k]].c[2] - m[2]) * sc + part_h(id[k]) * sc * 0.38f - press[k] * 0.14f, 0.21f, fb[k].c, press[k]);
     done(); return;
   }
   for (int k = 0; k < 4; k++) {
@@ -289,9 +298,7 @@ static void draw_buttons(int x, int y, int w, int h) { // the face buttons, Duke
     uint32_t c = brighter(fb[k].c, press[k] * 0.45f);
     cyl(&b, 0.31f, 0.0f, 0.12f, c, c); dome(&b, 0.31f, 0.12f, 0.14f, c);
   }
-  for (int k = 0; k < 4; k++) {                                         // the letters, on top
-    float sx, sy; if (gfx_project(v3f(fb[k].x, fb[k].y, 0.3f - press[k] * 0.12f), &sx, &sy)) gfx_text5((int)sx - 2, (int)sy - 3, 1, 0x101010, fb[k].l);
-  }
+  for (int k = 0; k < 4; k++) letter(k, fb[k].x, fb[k].y, 0.24f - press[k] * 0.12f, 0.21f, fb[k].c, press[k]);   // the letters, on top
   done();
 }
 static void draw_camera(int x, int y, int w, int h) {  // the camera turns with the right stick (and L / R)
