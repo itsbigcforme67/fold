@@ -44,6 +44,14 @@ itself and starts `fold.xbe`. Two connections a start at most. Without the lapto
 Levels saved on the Xbox (new names) are kept. `tools/xemu_loader_test.sh` checks all of this in xemu on a scratch
 disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the test DVD are copied from mh1-xbox.
 
+## The look
+
+Since 2026-10-23 the builder follows VMX World's hologram look (owner: "get the UI for FOLD BUILDER lookin this
+awesome too"): glass panels with glowing edges and corner brackets instead of brushed metal, the live 3D Duke controls
+turned into green light (gfx_holo_filter), projected tabs, glowing titles, lit rows, scanlines and a rolling band
+(gfx_post). The kit is in app/gfx.c, shared with VMX World. On the Xbox the glass is opaque over the GPU's scene.
+The compass, the tile palette and the wiring colours keep their colours: they tell things apart.
+
 ## Controls (Duke)
 
 Level view: the D-pad moves the cursor along the working plane; the left stick rolls the plane over the cursor cell's

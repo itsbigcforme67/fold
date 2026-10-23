@@ -1390,6 +1390,7 @@ static int draw_vmx(int x, int y, int scale, const uint8_t *b) {
       unsigned r = (q[0] * a + ((d >> 16) & 255) * (255 - a)) / 255, g = (q[1] * a + ((d >> 8) & 255) * (255 - a)) / 255, bl = (q[2] * a + (d & 255) * (255 - a)) / 255;
       gfx_px[Y * GW + X] = r << 16 | g << 8 | bl;
     }
+    gfx_holo_filter(ox, oy, F->w, F->h);       // the render as green light (the hologram look); then the screen
     gfx_blit(x, y, scale, &tx);
     return F->w;
   }
@@ -1517,49 +1518,58 @@ static void draw_room_editor(void) {
   }
   gfx_text5(px0 + 14, py0 + 270, 2, C_HI, ITEMS[item]);
   gfx_hint(px0 + 4, py0 + 312, "DPAD", inPal ? "PICK   A TAKE   B BACK" : "RIGHT: TO THE TILES");
-  gfx_dim(px0, 352, 216, 92, 0.5f); gfx_frame(px0, 352, 216, 92, 0x2f5a24);   // the whole level, small
+  gfx_glass(px0, 352, 216, 92); gfx_brackets(px0, 352, 216, 92, GFX_HG_EDGE, 8);   // the whole level, small
   mini_level(px0 + 2, 354, 212, 88);
 }
 // ---- the level view's layout (the owner's sketch, 2026-10-20): a row of tabs along the top, the green scene, and the
 // controls as pictures on brushed-metal panels in the bottom corners
 static const char *TABS[] = { "LEVEL", "CELL", "WIRING", "TEST", "SAVE", "LOAD" };
-static void tab_row(int current) {            // along the top of the screen
+static void tab_row(int current) {            // along the top of the screen: projected slanted tabs, the open one lit
   const int y0 = 4, y1 = 34, n = 6, W = GW / n;
-  gfx_dim(0, 0, GW, y1 + 2, 0.45f);
-  uint32_t line = 0xc8c8c8;
-  gfx_thick(0, y0, GW, y0, 2, line);
+  gfx_glass(0, 0, GW, y1 + 2);
+  for (int i = 0; i < GW; i++) gfx_rect(i, y1 + 1, 1, 1, gfx_mix(0x000000, GFX_HG_EDGE, 255 - abs(i - GW / 2) * 255 / (GW / 2 + 20)));
   for (int k = 0; k < n; k++) {
-    int x0 = k * W, x1 = x0 + W;
-    if (k == current) for (int y = y0 + 2; y < y1; y++) { int s = (y - y0) / 3; gfx_rect(x0 + 4 + s, y, W - 10, 1, 0x1f3a18); }
-    if (k) gfx_thick(x0 + 2, y0 + 4, x0 - 8, y1, 2, line);                // the slanted dividers
-    gfx_thick(x0 + (k ? 0 : 4), y1, x1 - 10, y1, 2, line);
-    gfx_text5(x0 + W / 2 - gfx_text5_w(1, TABS[k]) / 2 - 2, y0 + 12, 1, k == current ? 0xe8ffd8 : 0x9aa294, TABS[k]);
+    int x0 = k * W, on = k == current;
+    for (int y = y0; y < y1; y++) {
+      int sx = x0 + 4 + (y1 - y) / 3, sw = W - 12;
+      if (on) gfx_add_rect(sx, y, sw, 1, (uint32_t)((4 + (y - y0) / 3) << 16 | (30 + (y - y0) * 2) << 8 | (10 + (y - y0))));
+      gfx_rect(sx, y, 1, 1, on ? GFX_HG : GFX_HG_DIM); gfx_rect(sx + sw - 1, y, 1, 1, on ? GFX_HG : GFX_HG_DIM);
+    }
+    gfx_rect(x0 + 4 + 10, y0, W - 12, 1, on ? GFX_HG : GFX_HG_DIM);
+    int tx = x0 + W / 2 - gfx_text5_w(1, TABS[k]) / 2;
+    if (on) gfx_gtext(tx, y0 + 12, 1, 0xffffff, TABS[k]); else gfx_text5(tx, y0 + 12, 1, 0x7f9a86, TABS[k]);
   }
 }
 static void level_controls(void) {   // the metal panels in the corners, each with its live 3D control (icons3d.c)
-  gfx_metal_panel(0, 296, 150, 92, 14, 2 | 4); icons_stick(4, 298, 142, 88);     // the stick rolls the working plane
-  gfx_metal_panel(0, 398, 138, 82, 14, 2); icons_dpad(4, 400, 130, 80);           // the D-pad moves the cursor
-  gfx_metal_panel(GW - 128, 250, 128, 142, 14, 1 | 8); icons_buttons(GW - 124, 254, 120, 134);   // the face buttons
-  gfx_metal_panel(GW - 168, 400, 168, 80, 14, 1); icons_camera(GW - 164, 402, 160, 78);         // the camera
+  // glass panels; each live 3D control (icons3d.c) drawn, then turned into green light (the hologram look)
+  gfx_hpanel(2, 296, 148, 92, NULL, GFX_HG); icons_stick(4, 298, 142, 88); gfx_holo_filter(4, 298, 144, 88);     // the stick rolls the working plane
+  gfx_hpanel(2, 398, 136, 80, NULL, GFX_HG); icons_dpad(4, 400, 130, 76); gfx_holo_filter(4, 400, 132, 76);      // the D-pad moves the cursor
+  gfx_hpanel(GW - 128, 250, 126, 142, NULL, GFX_HG); icons_buttons(GW - 124, 254, 120, 134); gfx_holo_filter(GW - 126, 252, 122, 138);   // the face buttons
+  gfx_hpanel(GW - 168, 400, 166, 78, NULL, GFX_HG); icons_camera(GW - 164, 402, 160, 74); gfx_holo_filter(GW - 166, 402, 162, 74);     // the camera
 }
 static void top_bar(const char *mode) {
-  gfx_dim(0, 0, GW, 30, 0.55f); gfx_rect(0, 30, GW, 1, 0x2f5a24);
-  gfx_text5(12, 8, 2, C_HI, "FOLD");
+  gfx_glass(0, 0, GW, 30); gfx_rect(0, 30, GW, 1, GFX_HG_EDGE);
+  gfx_gtext(12, 8, 2, GFX_HG, "FOLD");
   gfx_text5(70, 10, 1, C_DIM, L.name);
-  int w = gfx_text5_w(1, mode) + 16; gfx_rect(GW - w - 10, 7, w, 16, 0x2f5a24); gfx_text5(GW - w - 2, 12, 1, 0xe8ffd8, mode);
+  int w = gfx_text5_w(1, mode) + 16; gfx_glass(GW - w - 10, 6, w, 18); gfx_brackets(GW - w - 10, 6, w, 18, GFX_HG, 5); gfx_gtext(GW - w - 2, 12, 1, 0xe8ffd8, mode);
 }
 static void hints(const char **pairs, int n) {   // the bottom bar: badges and what they do
-  gfx_dim(0, GH - 30, GW, 30, 0.6f); gfx_rect(0, GH - 31, GW, 1, 0x2f5a24);
+  gfx_glass(0, GH - 30, GW, 30);
+  for (int i = 0; i < GW; i++) gfx_rect(i, GH - 31, 1, 1, gfx_mix(0x000000, GFX_HG_EDGE, 255 - abs(i - GW / 2) * 255 / (GW / 2 + 20)));
   int x = 10;
   for (int k = 0; k < n; k++) x += gfx_hint(x, GH - 24, pairs[2 * k], pairs[2 * k + 1]);
 }
 static void row(int x, int y, int w, int sel, const char *s) {
-  if (sel) { gfx_rect(x - 6, y - 5, w, 20, 0x23421b); gfx_rect(x - 6, y - 5, 3, 20, C_HI); }
-  gfx_text5(x, y, 1, sel ? 0xe8ffd8 : C_TEXT, s);
+  if (sel) { gfx_hsel(x - 6, y - 5, w, 20, 1); gfx_gtext(x, y, 1, 0xe8ffd8, s); return; }
+  gfx_text5(x, y, 1, C_TEXT, s);
 }
-void app_draw(void) {
+static void draw_screens(void);
+void app_draw(void) {                          // every screen, then the scanlines and rolling band over it all
+  static int frameN; draw_screens(); gfx_post(frameN++);
+}
+static void draw_screens(void) {
   char s[160];
-  if (mode == M_KEYS) { mode = kbBack; app_draw(); mode = M_KEYS; keys_draw(); return; }   // the keyboard over its screen
+  if (mode == M_KEYS) { mode = kbBack; draw_screens(); mode = M_KEYS; keys_draw(); return; }   // the keyboard over its screen
   gfx_gradient(0x142012, 0x040604);
   if (mode == M_PLAY) {
     static uint8_t b[64 * 64];
@@ -1604,7 +1614,7 @@ void app_draw(void) {
       if (ci >= 0 && L.sqname[ci][0]) { snprintf(s, sizeof s, "CELL %d: %s", ci, L.sqname[ci]); gfx_text5(GW - 12 - gfx_text5_w(1, s), 56, 1, 0xf2e01c, s); } }
     if (mode == M_SHAPE) {
       level_controls();
-      gfx_dim(8, 44, 100, 100, 0.35f);       // the compass, top left: which way the world's axes point
+      gfx_glass(8, 44, 100, 100); gfx_brackets(8, 44, 100, 100, GFX_HG_EDGE, 8);   // the compass, top left: which way the world's axes point
       Vec3 up; { Vec3 r, u; view_axes(&r, &u); float cp = cosf(pitch), sp = sinf(pitch); up = v3f(u.x * sp + vn.x * cp, u.y * sp + vn.y * cp, u.z * sp + vn.z * cp); }
       icons_compass(8, 44, 100, 100, v3f(eye.x - look.x, eye.y - look.y, eye.z - look.z), up);
     }
@@ -1705,7 +1715,7 @@ void app_draw(void) {
       else if (n->kind == NK_SRC || n->kind == NK_SINK) { snprintf(t1, sizeof t1, "%s", src_kind(n->ref)); where(n->ref, t2, sizeof t2); }
       else if (n->kind == NK_CELL) { snprintf(t1, sizeof t1, "%.18s", FUNCS[func_index(&func[n->ref])]); where(2 * n->ref * NN, t2, sizeof t2); }
       else { const FoldLogic *q = &L.logic[n->ref]; if (q->op == FL_COUNT || q->op == FL_DELAY || q->op == FL_SHIFT) snprintf(t1, sizeof t1, "%s %d", OPNAMES[q->op], q->count); else snprintf(t1, sizeof t1, "%s", OPNAMES[q->op]); }
-      gfx_rect(x, y, n->w, n->h, 0x141e14); gfx_frame(x, y, n->w, n->h, edge);
+      gfx_glass(x, y, n->w, n->h); gfx_frame(x, y, n->w, n->h, gfx_mix(0x000000, edge, 120)); gfx_brackets(x, y, n->w, n->h, edge, 6);
       gfx_text5(x + 8, y + 5, 1, 0xe8ffd8, t1); if (t2[0]) gfx_text5(x + 8, y + 16, 1, C_DIM, t2);
       if (n->kind == NK_LOGIC) {                              // the gate's symbol
         const FoldLogic *q = &L.logic[n->ref]; int sx = x + n->w - 46, sy = y + n->h / 2 - 9; uint32_t c = 0xf2e01c;
@@ -1744,5 +1754,5 @@ void app_draw(void) {
     }
     const char *hh[] = { "DPAD", "PICK", "A", "CHOOSE", "B", "BACK" }; hints(hh, 3);
   }
-  if (msgT) { int w = gfx_text5_w(2, msg); gfx_dim(GW / 2 - w / 2 - 14, GH - 74, w + 28, 30, 0.7f); gfx_rect(GW / 2 - w / 2 - 14, GH - 74, 3, 30, C_HI); gfx_text5(GW / 2 - w / 2, GH - 66, 2, 0xe8ffd8, msg); }
+  if (msgT) { int w = gfx_text5_w(2, msg); gfx_glass(GW / 2 - w / 2 - 14, GH - 74, w + 28, 30); gfx_brackets(GW / 2 - w / 2 - 14, GH - 74, w + 28, 30, GFX_HG, 8); gfx_gtext(GW / 2 - w / 2, GH - 66, 2, 0xe8ffd8, msg); }
 }

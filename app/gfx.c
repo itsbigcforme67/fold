@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+void gfx_hpanel(int x, int y, int w, int h, const char *title, uint32_t accent);
 
 uint32_t gfx_px[GW * GH];
 static float zbuf[GW * GH];
@@ -121,7 +122,10 @@ static void round_rect(int x, int y, int w, int h, int r, uint32_t c) {
   }
 }
 void gfx_panel(int x, int y, int w, int h, const char *title, uint32_t accent) {
-  gfx_dim(x + 6, y + 8, w, h, 0.45f);                              // its shadow
+  gfx_dim(x, y, w, h, 0.55f);                       // deeper glass for dialogs, so their text reads over the scene
+  gfx_hpanel(x, y, w, h, title, accent == 0x58d838 ? GFX_HG : accent);   // the hologram look now (FOLD's green -> hologram green)
+  return;
+  gfx_dim(x + 6, y + 8, w, h, 0.45f);                              // (the old look) its shadow
   round_rect(x - 1, y - 1, w + 2, h + 2, 9, mix(accent, 0x000000, 0.45f));
   round_rect(x, y, w, h, 8, 0x0e130d);
   if (title) {
@@ -424,4 +428,86 @@ void gfx_clip(int x, int y, int w, int h) {
 }
 void gfx_zclear_rect(int x, int y, int w, int h) {
   for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) for (int i = x < 0 ? 0 : x; i < x + w && i < GW; i++) zbuf[j * GW + i] = 1e30f;
+}
+
+// ---- the hologram look (VMX World's house style, owner 2026-10-23; FOLD BUILDER follows it): glass panels with
+// glowing edges and corner brackets, glowing text, lit rows, a filter that turns a picture into green light, and one
+// pass of scanlines and a rolling band. With a GPU (the Xbox) gfx_px is a layer over the 3D scene: see-through pixels
+// (top byte 0xFF) are treated as black where something is drawn over them, and left alone by the post pass.
+uint32_t gfx_mix(uint32_t a, uint32_t b, int k) {
+  a &= 0xffffff;
+  int r = (int)((a >> 16) & 255) + ((((int)((b >> 16) & 255)) - (int)((a >> 16) & 255)) * k >> 8);
+  int g = (int)((a >> 8) & 255) + ((((int)((b >> 8) & 255)) - (int)((a >> 8) & 255)) * k >> 8);
+  int bl = (int)(a & 255) + ((((int)(b & 255)) - (int)(a & 255)) * k >> 8);
+  return (uint32_t)(r << 16 | g << 8 | bl);
+}
+static uint32_t solid(uint32_t p) { return p >> 24 ? 0 : p; }
+void gfx_add_rect(int x, int y, int w, int h, uint32_t c) {
+  for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) for (int i = x < 0 ? 0 : x; i < x + w && i < GW; i++) {
+    uint32_t p = solid(gfx_px[j * GW + i]);
+    int r = (int)((p >> 16) & 255) + (int)((c >> 16) & 255), g = (int)((p >> 8) & 255) + (int)((c >> 8) & 255), bl = (int)(p & 255) + (int)(c & 255);
+    gfx_px[j * GW + i] = (uint32_t)((r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (bl > 255 ? 255 : bl));
+  }
+}
+void gfx_glass(int x, int y, int w, int h) {
+  for (int j = y < 0 ? 0 : y; j < y + h && j < GH; j++) for (int i = x < 0 ? 0 : x; i < x + w && i < GW; i++) {
+    uint32_t p = solid(gfx_px[j * GW + i]);
+    gfx_px[j * GW + i] = (((p >> 16) & 255) * 5 / 16 + 2) << 16 | (((p >> 8) & 255) * 5 / 16 + 12) << 8 | ((p & 255) * 5 / 16 + 6);
+  }
+}
+void gfx_brackets(int x, int y, int w, int h, uint32_t c, int len) {
+  gfx_rect(x, y, len, 2, c); gfx_rect(x, y, 2, len, c); gfx_rect(x + w - len, y, len, 2, c); gfx_rect(x + w - 2, y, 2, len, c);
+  gfx_rect(x, y + h - 2, len, 2, c); gfx_rect(x, y + h - len, 2, len, c); gfx_rect(x + w - len, y + h - 2, len, 2, c); gfx_rect(x + w - 2, y + h - len, 2, len, c);
+}
+void gfx_gtext(int x, int y, int scale, uint32_t c, const char *s) {
+  uint32_t g = gfx_mix(0x000000, c, 70);
+  gfx_text5(x - 1, y, scale, g, s); gfx_text5(x + 1, y, scale, g, s); gfx_text5(x, y - 1, scale, g, s); gfx_text5(x, y + 1, scale, g, s);
+  gfx_text5(x, y, scale, c, s);
+}
+void gfx_hpanel(int x, int y, int w, int h, const char *title, uint32_t accent) {
+  gfx_glass(x, y, w, h);
+  gfx_frame(x, y, w, h, gfx_mix(0x000000, accent, 110));
+  gfx_brackets(x - 1, y - 1, w + 2, h + 2, accent, 14);
+  if (title) {
+    gfx_gtext(x + 14, y + 10, 2, accent, title);
+    for (int i = 0; i < w - 28; i++) gfx_rect(x + 14 + i, y + 30, 1, 1, gfx_mix(0x000000, accent, 255 - i * 255 / (w - 28)));
+  }
+}
+void gfx_hsel(int x, int y, int w, int h, int focused) {
+  for (int i = 0; i < w; i++) { int k = focused ? 110 - i * 90 / w : 40 - i * 30 / w; gfx_add_rect(x + i, y, 1, h, (uint32_t)((k / 6) << 16 | k << 8 | (k / 3))); }
+  gfx_rect(x, y, 3, h, focused ? GFX_HG : GFX_HG_EDGE);
+  if (focused) { gfx_rect(x, y, w, 1, GFX_HG_EDGE); gfx_rect(x, y + h - 1, w, 1, GFX_HG_EDGE); }
+}
+void gfx_holo_filter(int x, int y, int w, int h) {      // a picture as green light: brightness -> green, edges brighter
+  static uint8_t L[GW * 2]; int pw = w < GW ? w : GW;
+  for (int j = 0; j < h; j++) {
+    int Y = y + j; if (Y < 0 || Y >= GH) continue;
+    uint8_t *cur = L + (j & 1) * GW, *up = L + ((j + 1) & 1) * GW;
+    for (int i = 0; i < pw; i++) {
+      int X = x + i; if (X < 0 || X >= GW) { cur[i] = 0; continue; }
+      uint32_t p = solid(gfx_px[Y * GW + X]);
+      cur[i] = (uint8_t)((((p >> 16) & 255) * 77 + ((p >> 8) & 255) * 150 + (p & 255) * 29) >> 8);
+    }
+    for (int i = 0; i < pw; i++) {
+      int X = x + i; if (X < 0 || X >= GW) continue;
+      int l = cur[i], e = 0;
+      if (i > 0) e += abs(l - cur[i - 1]); if (j > 0) e += abs(l - up[i]);
+      int v = l * 3 / 4 + e * 2; if (v > 255) v = 255;
+      int hot = v > 200 ? (v - 200) * 2 : 0;
+      gfx_px[Y * GW + X] = (uint32_t)(((v * 22 >> 8) + hot) << 16 | (v > 255 ? 255 : v) << 8 | ((v * 90 >> 8) + hot));
+    }
+  }
+}
+void gfx_post(int t) {
+  int band = (t * 2) % (GH + 120) - 60;
+  for (int y = 0; y < GH; y++) {
+    int d = y - band, mul = (y % 3 == 0) ? 200 : 256; if (d > -12 && d < 12) mul += (12 - (d < 0 ? -d : d)) * 3;
+    if (mul == 256) continue;
+    uint32_t *p = gfx_px + y * GW;
+    for (int x = 0; x < GW; x++) {
+      uint32_t c = p[x]; if (c >> 24) continue;
+      int r = (int)((c >> 16) & 255) * mul >> 8, g = (int)((c >> 8) & 255) * mul >> 8, b = (int)(c & 255) * mul >> 8;
+      p[x] = (uint32_t)((r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b));
+    }
+  }
 }

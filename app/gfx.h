@@ -76,6 +76,20 @@ void gfx_fog_get(uint32_t *colour, float *start, float *end);
 void gfx_view_offset_get(int *dx, int *dy);
 uint32_t gfx_shade_lit(uint32_t c, float k);                      // the lit colour for a light k (as drawn here)
 
+// the hologram look (VMX World's house style; FOLD BUILDER follows it): see gfx.c
+#define GFX_HG 0x5dff7e                                   // hologram green, its dim and edge shades
+#define GFX_HG_DIM 0x1f6a34
+#define GFX_HG_EDGE 0x2c9a4a
+uint32_t gfx_mix(uint32_t a, uint32_t b, int k);            // k/256 of b over a
+void gfx_add_rect(int x, int y, int w, int h, uint32_t c);  // additive light
+void gfx_glass(int x, int y, int w, int h);                  // dark green see-through glass
+void gfx_brackets(int x, int y, int w, int h, uint32_t c, int len);   // bright corner brackets
+void gfx_gtext(int x, int y, int scale, uint32_t c, const char *s);   // 5x7 text with a glow
+void gfx_hpanel(int x, int y, int w, int h, const char *title, uint32_t accent);   // a glass panel, optional title
+void gfx_hsel(int x, int y, int w, int h, int focused);     // a lit row
+void gfx_holo_filter(int x, int y, int w, int h);            // turn what's drawn there into green light
+void gfx_post(int t);                                        // scanlines + rolling band over the screen
+
 Mat4 mat_mul(Mat4 a, Mat4 b);
 Mat4 mat_perspective(float fovy, float aspect, float zn, float zf);
 Mat4 mat_lookat(Vec3 eye, Vec3 at, Vec3 up);
