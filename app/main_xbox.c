@@ -60,13 +60,50 @@ static void read_pad(SDL_GameController *c, Pad *p) {
 // stopped first: XLaunchXBE leaves them running, and their DMA then writes into the next program's memory (FOLD's
 // network loader froze half way through its download when started from World, 24 Oct 2026).
 static int gpuOn;
+static void usb_quiesce(void);
 void fold_launch(const char *xbe);
 void fold_launch(const char *xbe) {
   SDL_Quit(); usbh_core_deinit();
   if (gpuOn) pb_kill();
+  usb_quiesce();
   XLaunchXBE((char *)xbe);
 }
+// stop the USB host controllers the last program left running (the dashboard talks to memory units: its transfers
+// went on landing in our memory, so nxdk's USB pool was corrupt before it even reset the controller, real Xbox
+// 24 Oct 2026). nxdk resets only the first controller, after it has set up its memory; the Xbox has two.
+static void usb_quiesce(void) {
+  static const ULONG base[2] = { 0xFED00000, 0xFED08000 };
+  for (int k = 0; k < 2; k++) {
+    volatile ULONG *r = MmMapIoSpace(base[k], 0x1000, PAGE_READWRITE | PAGE_NOCACHE);
+    if (!r) continue;
+    r[0x14 / 4] = 0x8000007F;                          // HcInterruptDisable: all
+    r[0x04 / 4] = 0;                                   // HcControl: USB reset state, no list processing
+    r[0x08 / 4] = 1;                                   // HcCommandStatus: host controller reset
+    for (int i = 0; i < 100 && (r[0x08 / 4] & 1); i++) KeStallExecutionProcessor(10);
+    r[0x18 / 4] = 0;                                   // HcHCCA: none
+    MmUnmapIoSpace((PVOID)r, 0x1000);
+  }
+  KeStallExecutionProcessor(2000);                     // anything already in flight lands now, before we use memory
+}
+// stop the network card the last program left running: nxdk's nxNetShutdown() does nothing, so after the network
+// loader the card went on writing every incoming packet into its old receive buffers, now our memory (broadcast
+// frames, FF FF FF FF FF FF, found inside nxdk's USB pool on the real Xbox, 24 Oct 2026). As nvnetdrv_stop does.
+static void nic_quiesce(void) {
+  volatile ULONG *r = MmMapIoSpace(0xFEF00000, 0x1000, PAGE_READWRITE | PAGE_NOCACHE);
+  if (!r) return;
+  r[0x004 / 4] = 0; r[0x184 / 4] = 0;                  // NvRegIrqMask, NvRegMIIMask: no interrupts
+  r[0x094 / 4] &= ~1u; r[0x084 / 4] &= ~1u;            // receiver and transmitter: stop
+  for (int i = 0; i < 5000 && ((r[0x098 / 4] | r[0x088 / 4]) & 1); i++) KeStallExecutionProcessor(10);   // busy
+  r[0x144 / 4] = 0x4;                                  // NvRegTxRxControl: DMA off
+  for (int i = 0; i < 2000 && !(r[0x144 / 4] & 0x8); i++) KeStallExecutionProcessor(50);               // idle
+  r[0x144 / 4] = 0x4 | 0x10; KeStallExecutionProcessor(10); r[0x144 / 4] = 0x4;   // reset, DMA left off
+  r[0x100 / 4] = 0; r[0x104 / 4] = 0;                  // no rings
+  r[0x000 / 4] = r[0x000 / 4];                         // acknowledge what's pending
+  MmUnmapIoSpace((PVOID)r, 0x1000);
+}
 int main(void) {
+  nic_quiesce();                               // (before anything uses memory: see above)
+  usb_quiesce();
   XVideoSetMode(640, 480, 32, REFRESH_DEFAULT);
   app_usb_init();                              // (before SDL, so USB drivers an app adds see devices plugged in at start)
   SDL_Init(SDL_INIT_GAMECONTROLLER);           // (before pbkit, as nxdk's samples do)
