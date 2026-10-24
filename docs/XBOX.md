@@ -43,6 +43,9 @@ changed, downloads the whole build in one request (`/pack`: fold.xbe, assets, le
 itself and starts `fold.xbe`. Two connections a start at most. Without the laptop it starts the copy on the disk.
 Levels saved on the Xbox (new names) are kept. `tools/xemu_loader_test.sh` checks all of this in xemu on a scratch
 disk (uses the mh1-xbox repo's `tools/xbox_fatx.py`); the HTTP client and the test DVD are copied from mh1-xbox.
+nxdk's `nxNetShutdown()` does nothing, so the loader stops the network card itself before starting the game
+(otherwise incoming packets keep landing in the game's memory; found on the real Xbox, 24 Oct 2026), and
+main_xbox.c stops the card and both USB controllers again first thing. Reinstall the loader after changing it.
 
 ## The look
 
