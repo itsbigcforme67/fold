@@ -9,6 +9,8 @@
 #include <hal/xbox.h>
 #include <windows.h>
 #include <SDL.h>
+#include <usbh_lib.h>
+#include <pbkit/pbkit.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -54,11 +56,21 @@ static void read_pad(SDL_GameController *c, Pad *p) {
   if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000) p->held |= PAD_R;
 }
 
+// start another XBE (an app's launcher: VMX World starts FOLD BUILDER). The USB host controller and the GPU are
+// stopped first: XLaunchXBE leaves them running, and their DMA then writes into the next program's memory (FOLD's
+// network loader froze half way through its download when started from World, 24 Oct 2026).
+static int gpuOn;
+void fold_launch(const char *xbe);
+void fold_launch(const char *xbe) {
+  SDL_Quit(); usbh_core_deinit();
+  if (gpuOn) pb_kill();
+  XLaunchXBE((char *)xbe);
+}
 int main(void) {
   XVideoSetMode(640, 480, 32, REFRESH_DEFAULT);
   app_usb_init();                              // (before SDL, so USB drivers an app adds see devices plugged in at start)
   SDL_Init(SDL_INIT_GAMECONTROLLER);           // (before pbkit, as nxdk's samples do)
-  int gpu = gpu_init();                         // the 3D scene on the GPU; without it, the software picture as before
+  int gpu = gpuOn = gpu_init();                         // the 3D scene on the GPU; without it, the software picture as before
   app_init("D:\\levels");
   SDL_GameController *pad = NULL;
   int demo = padscript_open("D:\\demo.txt"), trace = 1;   // a pad script on the disc plays first (tests, attract);
