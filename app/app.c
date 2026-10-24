@@ -15,6 +15,7 @@
 #include "vmx.h"
 #include "icons3d.h"
 #include "../core/fold.h"
+#include "../core/vmxfit.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -219,6 +220,12 @@ int app_save(const char *p) {
   }
   fclose(f);
   return 1;
+}
+// a saved level against the VMX's heap (core/vmxfit.h): VMX World leaves one that doesn't fit off the VMX
+static int vmx_fits(const char *p) {
+  FILE *f = fopen(p, "rb"); if (!f) return 1;
+  static char text[1 << 16]; int n = (int)fread(text, 1, sizeof text, f); fclose(f);
+  return fold_fits_vmx(fold_count_squares(text, n), n);
 }
 int app_load(const char *p) {
   FILE *f = fopen(p, "rb"); if (!f) return 0;
@@ -1004,7 +1011,7 @@ static void menu_frame(const Pad *p) {
       case 2: wcur = 0; wport = -1; wHold = -1; wAdd = -1; mode = M_WIRE; return;
       case 3:
         if (!path[0]) { for (int k = 1; k < 1000; k++) { snprintf(path, sizeof path, "%s/user-%03d.fold", levelsDir, k); FILE *f = fopen(path, "r"); if (!f) break; fclose(f); } }
-        say(app_save(path) ? "SAVED" : "COULD NOT SAVE"); nfiles = 0; break;
+        say(!app_save(path) ? "COULD NOT SAVE" : vmx_fits(path) ? "SAVED" : "SAVED. TOO BIG FOR THE VMX: FEWER CELLS OR WORDS"); nfiles = 0; break;
       case 4: if (nfiles) { snprintf(full, sizeof full, "%s/%s", levelsDir, files[fileIx]); say(app_load(full) ? "LOADED" : "COULD NOT LOAD"); mode = M_SHAPE; } return;
       case 5: new_level(); say("NEW LEVEL"); mode = M_SHAPE; return;
       case 6: quit = 1; return;

@@ -94,6 +94,15 @@ one-way arrows turn with it, edge doorways are matched up with the next cells ag
 
 On the PC: keys as before, plus - / = zoom, G the left stick click; a modern pad's shoulder buttons zoom.
 
+## Levels to the VMX
+
+New levels are saved as `user-NNN.fold` in the levels folder (E:\Games\FOLD\levels). VMX World copies them into
+FOLD ROOMS on the VMX (its save folder's DATA\LEVELS.BIN) whenever it looks at a VMX, and FOLD ROOMS lists them after
+its own levels (vmx-world/docs/STATUS.md, vmx-firmware/docs/STATUS.md, 2026-10-24). The VMX's game heap is small:
+a level needs about `1100 * cells + 2 * bytes of text <= 64000` (`core/vmxfit.h`, measured on the VMX runtime), so
+roughly 40-48 cells with ordinary rooms, fewer with many signs. Saving one past that says "SAVED. TOO BIG FOR THE VMX:
+FEWER CELLS OR WORDS"; it still saves and plays here, World just leaves it off the VMX.
+
 ## Things found on the way
 
 - nxdk's C library mishandles `sscanf("%*s ...")` (it stores into the next argument) and `ftell` on a disc file is
